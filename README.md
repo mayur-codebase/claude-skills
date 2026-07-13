@@ -20,16 +20,55 @@ Prime any Claude Code session with what a project or folder contains: layout, st
 
 ## Install
 
-### As a plugin (recommended)
+Pick whichever matches how you run Claude Code:
 
-In Claude Code:
+### Terminal (CLI)
+
+From any shell (no interactive session needed):
+
+```sh
+claude plugin marketplace add mayur-codebase/claude-skills
+claude plugin install ctx@claude-skills --scope user
+```
+
+Or inside an interactive `claude` session:
 
 ```
 /plugin marketplace add mayur-codebase/claude-skills
 /plugin install ctx@claude-skills
 ```
 
-### Manual copy
+> `/plugin` slash commands only exist in the terminal app — the desktop app, web, and IDE extensions use the options below instead.
+
+### Desktop app
+
+Click the **+** button next to the prompt box → **Plugins**, add the marketplace `mayur-codebase/claude-skills`, then install **ctx**.
+
+### settings.json (works everywhere, no UI)
+
+Add to `~/.claude/settings.json` (personal) or a repo's `.claude/settings.json` (whole team — plugins auto-install for collaborators on next session):
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "claude-skills": {
+      "source": {
+        "source": "github",
+        "repo": "mayur-codebase/claude-skills"
+      }
+    }
+  },
+  "enabledPlugins": [
+    {
+      "name": "ctx",
+      "marketplace": "claude-skills",
+      "scope": "user"
+    }
+  ]
+}
+```
+
+### Manual copy (simplest, no plugin system)
 
 Copy the skill file to your personal skills directory:
 
