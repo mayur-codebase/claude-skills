@@ -1,0 +1,13 @@
+{
+  "name": "claude-skills",
+  "owner": {
+    "name": "Mayur"
+  },
+  "plugins": [
+    {
+      "name": "ctx",
+      "source": "./plugins/ctx",
+      "description": "Portable project-context briefings: build, load, and sync per-project context files stored outside the repo."
+    }
+  ]
+}
