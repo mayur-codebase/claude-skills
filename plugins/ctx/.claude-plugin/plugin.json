@@ -1,7 +1,7 @@
 {
   "name": "ctx",
-  "description": "Portable project-context briefings — /ctx loads a saved project context, /ctx build explores and writes one, /ctx save syncs session learnings back. Context files live in ~/.claude/context/, never in the repo.",
-  "version": "1.0.0",
+  "description": "Portable context briefings for any project or folder — /ctx loads a saved context, /ctx build explores and writes one, /ctx save syncs session learnings back. Works with code in any language, monorepos, infra, data, docs, or plain file directories. Context files live in ~/.claude/context/, never in the repo.",
+  "version": "1.1.0",
   "author": {
     "name": "Mayur"
   }

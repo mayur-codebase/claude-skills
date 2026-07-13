@@ -4,16 +4,19 @@ A collection of reusable [Claude Code](https://claude.com/claude-code) skills, p
 
 ## Skills
 
-### `/ctx` — portable project context
+### `/ctx` — portable context for any folder
 
-Prime any Claude Code session with what a project looks like: layout, data model, what's real vs mock, gotchas, and current work. Context files are stored in `~/.claude/context/<repo>/<area>.md` on your machine — never inside the repo, never committed.
+Prime any Claude Code session with what a project or folder contains: layout, stack, data model, what's real vs mock, gotchas, and current work. Works with code in any language, monorepos, infra, data/ML, docs sites — and plain file directories, where it builds an organized inventory instead. Context files are stored in `~/.claude/context/<repo>/<area>.md` on your machine — never inside the repo, never committed, and never containing secret values.
 
 | Command | What it does |
 |---|---|
-| `/ctx` or `/ctx <area>` | Load the saved context (auto-builds it if missing) and get a compact briefing |
-| `/ctx build [area]` | Explore the project from scratch and (re)write the context file |
+| `/ctx` or `/ctx <area\|path>` | Load the saved context (auto-builds it if missing) and get a compact briefing |
+| `/ctx build [target …]` | Explore from scratch and (re)write the context file — targets can be names or paths |
 | `/ctx save [area]` | Fold what the current session learned back into the file |
+| `/ctx show [area]` | Print the raw context file |
+| `/ctx rm <area>` | Delete a context (asks first) |
 | `/ctx list` | Show all saved contexts with their verified dates |
+| `/ctx help` | Show the command table |
 
 ## Install
 
