@@ -20,6 +20,18 @@ Prime any Claude Code session with what a project or folder contains: layout, st
 
 ## Install
 
+### Quick install (one command)
+
+Works for every Claude Code environment (terminal, desktop, IDE):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/install.sh | sh
+```
+
+Installs all skills in this repo to `~/.claude/skills/` — available in your next session, in every project. Re-run it any time to update.
+
+### Other install options
+
 Pick whichever matches how you run Claude Code:
 
 ### Terminal (CLI)
