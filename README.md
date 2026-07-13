@@ -25,7 +25,7 @@ Prime any Claude Code session with what a project or folder contains: layout, st
 In Claude Code:
 
 ```
-/plugin marketplace add <your-github-username>/claude-skills
+/plugin marketplace add mayur-codebase/claude-skills
 /plugin install ctx@claude-skills
 ```
 
@@ -36,7 +36,7 @@ Copy the skill file to your personal skills directory:
 ```sh
 mkdir -p ~/.claude/skills/ctx
 curl -o ~/.claude/skills/ctx/SKILL.md \
-  https://raw.githubusercontent.com/<your-github-username>/claude-skills/main/plugins/ctx/skills/ctx/SKILL.md
+  https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/plugins/ctx/skills/ctx/SKILL.md
 ```
 
 It is picked up automatically in your next session.
