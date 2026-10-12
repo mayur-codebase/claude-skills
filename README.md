@@ -38,10 +38,13 @@ Stop hunting through Google Docs and Drive folders. Point the skill at a git rep
 |---|---|
 | `/codebase-docs init` | Link the docs repo, verify write access, learn its structure, record rules and push policy |
 | `/codebase-docs bootstrap [project]` | One-time: draft a project's initial docs from its code, after you approve the plan |
+| `/codebase-docs add --from <file\|link> [--keep-original]` | Import an existing Word/PDF/HTML/Excel/PowerPoint file or Claude artifact as a Markdown doc; optionally keep the original as an attachment |
 | `/codebase-docs add [what]` | Write or file a doc into the right project folder, update indexes, commit, push per policy |
 | `/codebase-docs find <query>` | Search the docs repo and report matches |
 | `/codebase-docs sync` / `push` | Pull with rebase / push pending commits (never force) |
 | `/codebase-docs status` / `config` | Show repo state / view and edit settings |
+
+Existing documents come in as Markdown by default (`add --from`). Keeping originals (PDF, Word, Excel, PowerPoint, HTML, Claude artifacts) is an opt-in `allow-attachments` rule: files live in `<project>/attachments/`, each linked from a Markdown page, size-capped (10 MB by default), and the checker scans their text for secrets, internal addresses and client names.
 
 The repo is docs-only by design: with the strict `no-source-code` rule, code files are blocked and only short labeled sample snippets are allowed inside Markdown. A bundled script (`scripts/precommit.py`, needs `python3`) runs before every commit and push: it blocks code files, oversized or copied code blocks, secrets, internal IPs/hosts, confidential client names and multi-line commit messages, and lists the rules it can't check for Claude to verify.
 

@@ -12,11 +12,13 @@ Output lines: BLOCK / FLAG / MANUAL, then `RESULT PASS|FLAGS|FAIL`.
 Exit: 0 clean, 1 any BLOCK, 2 FLAGs only. MANUAL lines are reminders for rules a
 script can't judge; they never affect the exit code.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, zipfile
 
 DOC_EXT = {'.md', '.mdx'}
 IMG_EXT = {'.png', '.jpg', '.jpeg', '.svg'}
 ALWAYS_OK = {'.gitignore', '.gitattributes'}
+ATTACH_EXT = {'.pdf', '.docx', '.xlsx', '.pptx', '.csv', '.html'} | IMG_EXT
+OFFICE_PARTS = re.compile(r'^(word/(document|header\d*|footer\d*|comments)|ppt/(slides/slide\d+|notesSlides/notesSlide\d+)|xl/(sharedStrings|worksheets/sheet\d+))\.xml$')
 NAME_OK = {'README.md', '.codebase-docs.md', '.gitignore', '.gitattributes'}
 INDEX_FILES = {'README.md', '.codebase-docs.md'}
 SKIP_DIRS = {'.git', 'node_modules', 'dist', 'build', '.venv', 'venv', '__pycache__', '.next', 'target', 'vendor'}
@@ -57,6 +59,33 @@ def git(clone, *args, check=False):
     if check and r.returncode:
         sys.exit(f'git {" ".join(args)} failed: {r.stderr.strip()}')
     return r.stdout
+
+
+def git_bytes(clone, *args):
+    return subprocess.run(['git', '-C', clone, *args], capture_output=True).stdout
+
+
+def attachment_text(data, ext):
+    """Best-effort text of an attachment so it can be scanned; None = not scannable."""
+    if ext in {'.html', '.csv', '.svg'}:
+        return data.decode('utf-8', 'replace')
+    if ext in {'.docx', '.pptx', '.xlsx'}:
+        with tempfile.NamedTemporaryFile(suffix=ext) as t:
+            t.write(data)
+            t.flush()
+            try:
+                z = zipfile.ZipFile(t.name)
+            except zipfile.BadZipFile:
+                return None
+            parts = [re.sub(r'<[^>]+>', ' ', z.read(n).decode('utf-8', 'replace')) for n in z.namelist() if OFFICE_PARTS.match(n)]
+            return '\n'.join(parts)
+    if ext == '.pdf' and shutil.which('pdftotext'):
+        with tempfile.NamedTemporaryFile(suffix=ext) as t:
+            t.write(data)
+            t.flush()
+            r = subprocess.run(['pdftotext', '-layout', t.name, '-'], capture_output=True, text=True)
+            return r.stdout if r.returncode == 0 else None
+    return None
 
 
 def load_code(dirs):
@@ -137,7 +166,26 @@ def main():
     def add(level, path, line, msg):
         out.append((level, path, line, msg))
 
+    def scan_text(f, lines):
+        for n, l in enumerate(lines, 1):
+            if 'no-secrets' in H:
+                for rx, d in SECRETS:
+                    if re.search(rx, l):
+                        add('BLOCK', f, n, d)
+            if 'no-internal-urls' in H:
+                for rx, d in INTERNAL:
+                    if re.search(rx, l):
+                        add('BLOCK', f, n, d)
+            for name in names:
+                if re.search(r'(?i)(?<!\w)' + re.escape(name) + r'(?!\w)', l):
+                    add('BLOCK', f, n, f'confidential name "{name}"')
+            if 'nda-safe' in H and CONTRACT.search(l):
+                add('FLAG', f, n, 'contract/pricing language: keep or reword?')
+
     type_rules = H & {'no-source-code', 'markdown-only'}
+    attach_on = 'allow-attachments' in H
+    max_bytes = int(float(cfg.get('attachmentMaxMB', 10)) * 1024 * 1024)
+    md_cache = {}
     allowed = DOC_EXT if 'markdown-only' in H else DOC_EXT | IMG_EXT
     code_dirs = [os.path.abspath(os.path.expanduser(c)) for c in a.code]
     code = load_code(code_dirs) if H & {'no-source-code', 'snippet-limit'} else {}
@@ -147,6 +195,28 @@ def main():
 
     for f in files:
         base, ext = os.path.basename(f), os.path.splitext(f)[1].lower()
+        parts = f.split('/')
+        if attach_on and len(parts) >= 3 and parts[1] == 'attachments' and ext in ATTACH_EXT:
+            data = git_bytes(clone, 'show', (':' if a.mode == 'staged' else 'HEAD:') + f)
+            if len(data) > max_bytes:
+                add('BLOCK', f, 0, f'attachment is {len(data) / 1048576:.1f} MB (limit {max_bytes / 1048576:g} MB)')
+            if 'kebab-case-names' in H and not re.fullmatch(r'[a-z0-9][a-z0-9.\-]*', base):
+                add('BLOCK', f, 0, f'"{base}" is not lowercase kebab-case')
+            top = parts[0]
+            if top not in md_cache:
+                mds = [x for x in git(clone, 'ls-files', '--', top + '/').split('\n') if x.lower().endswith(tuple(DOC_EXT))]
+                md_cache[top] = '\n'.join(git(clone, 'show', ':' + x) for x in mds)
+            if base not in md_cache[top]:
+                add('BLOCK', f, 0, 'attachment is not linked from any Markdown page in its project (add a page with a summary and link)')
+            txt = attachment_text(data, ext)
+            if txt is None:
+                if ext not in IMG_EXT:
+                    add('FLAG', f, 0, 'content cannot be scanned here — read it and confirm it holds no secrets, client names or NDA material')
+            else:
+                scan_text(f, txt.split('\n'))
+                if ext == '.html' and re.search(r'(?i)<script|<iframe|on\w+\s*=', txt):
+                    add('FLAG', f, 0, 'HTML contains script/iframe/event handlers — confirm it is safe to store')
+            continue
         if type_rules and base not in ALWAYS_OK and ext not in allowed:
             add('BLOCK', f, 0, 'file type not allowed (' + ('markdown-only' if 'markdown-only' in H else 'no-source-code') + ')')
             continue
@@ -170,20 +240,7 @@ def main():
                 add('BLOCK', f, 1, 'frontmatter missing: ' + ', '.join(sorted(missing)))
 
         if base != '.codebase-docs.md':
-            for n, l in enumerate(lines, 1):
-                if 'no-secrets' in H:
-                    for rx, d in SECRETS:
-                        if re.search(rx, l):
-                            add('BLOCK', f, n, d)
-                if 'no-internal-urls' in H:
-                    for rx, d in INTERNAL:
-                        if re.search(rx, l):
-                            add('BLOCK', f, n, d)
-                for name in names:
-                    if re.search(r'(?i)(?<!\w)' + re.escape(name) + r'(?!\w)', l):
-                        add('BLOCK', f, n, f'confidential name "{name}"')
-                if 'nda-safe' in H and CONTRACT.search(l):
-                    add('FLAG', f, n, 'contract/pricing language: keep or reword?')
+            scan_text(f, lines)
 
         if H & {'no-source-code', 'snippet-limit'}:
             for i, j, lang in fenced_blocks(lines):
@@ -230,6 +287,8 @@ def main():
             for i, j, lang in fenced_blocks(tl):
                 blocks += 1
                 previews.append(f'  {f}:{i + 1} ({j - i - 1} lines) {tl[i + 1].strip()[:70] if i + 1 < len(tl) else ""}')
+        att = [f for f in files if len(f.split('/')) >= 3 and f.split('/')[1] == 'attachments']
+        print('attachments:', ', '.join(att) or 'none')
         print('code blocks:', blocks)
         for pv in previews:
             print(pv)

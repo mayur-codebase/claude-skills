@@ -1,7 +1,7 @@
 ---
 name: codebase-docs
-description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders. Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder, "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
-argument-hint: "init | bootstrap [project] | add [what] [--project <name>] | find <query> | sync | push | status | config | help"
+description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders. Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder (or `add --from <file|artifact link>` converts an existing Word/PDF/HTML/Claude-artifact into one), "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
+argument-hint: "init | bootstrap [project] | add [what | --from <file|link> [--keep-original]] [--project <name>] | find <query> | sync | push | status | config | help"
 ---
 
 # codebase-docs — one git repo for all project documentation
@@ -31,6 +31,7 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
   "projectMap": { "github.com/org/orders-api": "orders-api" },
   "harness": ["no-secrets", "folder-per-project", "kebab-case-names"],
   "confidentialNames": { "Real Client Name": "codename" },
+  "attachmentMaxMB": 10,
   "customRules": ["free-text rules added at the end of init"]
 }
 ```
@@ -38,6 +39,7 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
 - `pushPolicy`: `ask` (default — show what will be pushed, wait for yes), `auto` (push right after each doc write), `manual` (commit only; push on `/codebase-docs push`).
 - `docTrigger`: `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
 - `projectMap`: code project → docs folder, so it is never re-asked. The skill writes an entry whenever it resolves a project. Key = the code repo's normalized remote (`host/owner/repo`, no `.git`, no scheme); with no remote, the project's absolute path.
+- `attachmentMaxMB` (default 10) caps each attachment when `allow-attachments` is ticked.
 - `confidentialNames` stays on the user's machine; never write it (or any real name from it) into the docs repo, including `.codebase-docs.md`.
 - Read `config.json` at the start of every command except `init`/`help`. If missing, say so and run `init`.
 - Locating the script: it sits in `scripts/` next to this `SKILL.md` (the skill's base directory is shown when the skill loads). If that path is missing, look in `$HOME/.claude/skills/codebase-docs/scripts/` then `find $HOME/.claude/plugins -path '*codebase-docs/scripts/precommit.py'`.
@@ -49,6 +51,7 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
 | `init` | Link the repo, check access, pick settings and harness rules, push the starter files |
 | `bootstrap [project]` | One-time: draft the initial docs for a project from its code, after you approve the plan |
 | `add [what] [--project <name>]` | Write or file a doc into the right folder (default verb when the user just describes docs to write) |
+| `add --from <file\|link> [--keep-original]` | Convert an existing Word/PDF/HTML/Excel/PowerPoint file or a Claude artifact link into a Markdown doc; optionally keep the original as an attachment |
 | `find <query>` | Search the docs repo and report matching files |
 | `sync` | `git pull --rebase`, then offer to push unpushed commits |
 | `push` | Check and push pending commits |
@@ -88,9 +91,10 @@ Use AskUserQuestion where choices are fixed, plain questions for free text. On r
 | | `anonymize-clients` | Clients, partners and vendors appear by codename only |
 | | `no-third-party-content` | No pasted copyrighted/licensed material; summarize in own words and link |
 | | `confidentiality-review` ★ | Before any push, show a confidentiality summary and get explicit approval, whatever `pushPolicy` says |
-| Code policy | `no-source-code` ★ | **Strict:** no code files in the repo — only `.md`/`.mdx` and images. Code appears only as short snippets inside Markdown |
+| Code policy | `no-source-code` ★ | **Strict:** no code files in the repo — only `.md`/`.mdx` and images (plus attachments, if `allow-attachments` is ticked). Code appears only as short snippets inside Markdown |
 | | `snippet-limit` ★ | Snippets are samples: at most 30 lines, labeled "Sample", never a verbatim copy of code from the project |
 | | `link-not-copy` | Point to code by repo, path and commit permalink instead of pasting it |
+| | `allow-attachments` | Opt-in: original files (`.pdf`, `.docx`, `.xlsx`, `.pptx`, `.csv`, `.html`, images) may be kept in `<project>/attachments/`, each linked from a Markdown page, under `attachmentMaxMB`. The checker scans their text; anything it can't read is flagged for your review |
 | Structure | `folder-per-project` ★ | One top-level folder per project, named in kebab-case |
 | | `index-readmes` ★ | Keep each project `README.md` and the root `README.md` index up to date |
 | | `adr-decisions` | Decisions are ADRs in `decisions/YYYY-MM-DD-title.md` (context, decision, consequences) |
@@ -119,7 +123,8 @@ python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.cla
 - `--code`: the code project(s) being documented (the session's working directory, or the path given to `bootstrap`). Needed to catch verbatim copies; skip it only when no code project is known.
 - Output: `BLOCK` lines (stop), `FLAG` lines (show the user, keep or reword, proceed only on an explicit answer), `MANUAL` lines (rules the script can't judge — you must verify each one against what you wrote and fix violations), then `RESULT PASS|FLAGS|FAIL`. Exit 0 / 2 / 1.
 - Thresholds, so results are reproducible: code blocks over 30 lines blocked; a block is "labeled" if the word *Sample* is on the fence line or the nearest non-blank line above (`mermaid` blocks exempt); a block is a "verbatim copy" if at least 3 non-trivial lines match a project file and they are at least 50% of the block, or the doc contains a whole project file; contract/pricing language is a FLAG, everything else listed is a BLOCK.
-- `--summary` prints the confidentiality summary (files and line counts, code blocks, URLs, amounts/percentages, confidential names found) — show it verbatim for `confidentiality-review`.
+- **Attachments** (`allow-attachments`): files in `<project>/attachments/` are exempt from the file-type rule but must be an allowed type, under the size limit, kebab-case named, and linked from a Markdown page in the same project. The script extracts and scans the text of `.docx/.pptx/.xlsx`, `.html`, `.csv` and (when `pdftotext` is installed) `.pdf` with the same secret/internal-address/confidential-name checks; unreadable content (scanned PDFs, images excluded) gets a `FLAG` — open it yourself, check it, and ask the user before keeping it. HTML containing scripts is flagged too.
+- `--summary` prints the confidentiality summary (files and line counts, attachments, code blocks, URLs, amounts/percentages, confidential names found) — show it verbatim for `confidentiality-review`.
 - A ticked rule is **not overridable in the moment**. If the user asks for something it forbids ("just push the file"), name the rule that blocks it and say they can change it via `/codebase-docs config`; don't bypass the check.
 - On BLOCK: don't commit. Report each line, **unstage** the offending paths (`git -C <clone> reset -q -- <path>`) without deleting them, then fix the content and re-run. Files this run created that were never committed may be edited or removed to fix them; existing committed docs are never deleted (see Safety).
 - **Bad commit already made** (a range-mode BLOCK): if it is unpushed, `git -C <clone> reset --soft HEAD~<n>`, fix, and re-commit — allowed, since nothing was published. If it is already pushed, don't rewrite history; explain and ask the user.
@@ -170,6 +175,23 @@ Opt-in, explicit only — never triggered by `docTrigger`. Drafts the first docs
 ### Branch and PR
 
 For `branch-and-pr`: create `docs/<topic>` (kebab-case, from the doc topic) before committing, push it with `git push -u origin docs/<topic>`, then open a PR with `gh pr create` if `gh` is available (title = the commit subject), otherwise print the branch's compare URL. Never merge it.
+
+## add --from (import an existing file or artifact)
+
+Brings documents that already exist (Word, PDF, HTML, Excel, PowerPoint, a Claude artifact) into the docs repo. Follows `add`'s steps 1–2 and 4–10; only the source of the content differs.
+
+1. **Read the source.**
+   - `.docx`/`.pptx`/`.xlsx`: `pandoc -t gfm` if installed, otherwise the available docx/pptx/xlsx skills or a plain text extraction.
+   - `.pdf`: the Read tool with `pages`, or `pdftotext -layout`.
+   - `.html`/`.md`/`.txt`: read directly (HTML → structure the content as Markdown).
+   - **Claude artifact link** (`claude.ai/.../artifact/...`): the Artifact tool's `read` action returns its page; convert the content to Markdown. Never fetch it with a web tool.
+   - Google Doc/Drive link: use a Drive/Docs connector if one is attached; otherwise ask the user to export the file and pass the path.
+   - Unreadable or empty source → say so; never fabricate content.
+2. **Convert faithfully** to a Markdown doc: keep headings, lists and tables; describe charts/images in a line instead of embedding them (or note `TODO: diagram — see original`); replace real client names with codenames and redact secrets per the harness. Open the doc with a line `Imported from <file name or artifact title>, <YYYY-MM-DD>` — no private URLs.
+3. **Placement and naming** as `add` (project folder, kebab-case name from the source's title).
+4. **Original file** — not committed by default. Keep it only when the user passes `--keep-original` (or asks) **and** `allow-attachments` is ticked: copy it to `<project>/attachments/<kebab-name>.<ext>` and link it from the Markdown page ("Original: [name](attachments/name.ext)"). If the rule isn't ticked, say attachments are off, offer to enable it via `config`, and commit only the Markdown. A Claude artifact kept as `.html` loses nothing but must be downloaded to view — mention that.
+5. **The original defeats redaction.** If step 2 codenamed or redacted anything, the untouched original still contains it, and the checker will BLOCK it. Explain this rather than working around it; the Markdown conversion is the shareable version.
+6. Continue with `add` steps 7–10 (indexes, pre-commit check, commit, push). The pre-commit check covers the Markdown and any attachment.
 
 ## Doc trigger
 
