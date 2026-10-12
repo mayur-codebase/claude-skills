@@ -140,7 +140,7 @@ def main():
     clone = os.path.abspath(os.path.expanduser(a.clone))
     cfg = json.load(open(os.path.expanduser(a.config)))
     H = set(cfg.get('harness', []))
-    names = cfg.get('confidentialNames', {}) if H & {'nda-safe', 'anonymize-clients'} else {}
+    names = cfg.get('confidentialNames', {}) if 'anonymize-clients' in H else {}
 
     if a.mode == 'staged':
         files = git(clone, 'diff', '--cached', '--name-only', '--diff-filter=AMR').split('\n')

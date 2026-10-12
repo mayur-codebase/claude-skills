@@ -70,7 +70,7 @@ Use AskUserQuestion where choices are fixed, plain questions for free text. On r
    - Call A: **Push policy** (`ask` recommended / `auto` / `manual`); **Doc trigger** (`suggest` recommended / `manual` / `auto` — warn that `auto` works best with `no-secrets` and `branch-and-pr` ticked); then the multi-select groups **Content safety** and **Confidentiality**.
    - Call B: multi-select groups **Code policy**, **Structure**, **Format**, **Workflow**.
    - Each option is a catalog id (below), recommended ones marked. Nothing is on unless ticked. An "Other" entry on any question is folded into `customRules`.
-   - If `nda-safe` or `anonymize-clients` is ticked, ask for the client/partner/vendor names that must never appear and a codename for each → `confidentialNames`.
+   - Only if `anonymize-clients` is ticked, ask for the client/partner/vendor names that must never appear and a codename for each → `confidentialNames`. Client-name scanning exists only under this rule; leaving it unticked means names are never checked.
    - Finally ask free text: **"Any custom rules not covered above?"** (empty = none) → `customRules`, one rule per entry.
 5. **Learn the repo** — read its `README.md`, `.codebase-docs.md` if present, and list two levels deep. Summarize the structure in a few lines and ask the user to confirm or correct.
 6. **Write config.json**, then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). Project folders are **not** created here — they appear at the first `add`/`bootstrap`.
