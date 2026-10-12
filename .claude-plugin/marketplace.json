@@ -13,6 +13,11 @@
       "name": "meeting-notes",
       "source": "./plugins/meeting-notes",
       "description": "Durable memory for client meeting notes: save normalizes notes into a standard format, ask answers with citations, history/open track decisions and open questions per project."
+    },
+    {
+      "name": "codebase-docs",
+      "source": "./plugins/codebase-docs",
+      "description": "Central git repo for all project documentation: init links the repo and rules, add files docs into the right project folder (adapting structure), find/sync/push manage it."
     }
   ]
 }

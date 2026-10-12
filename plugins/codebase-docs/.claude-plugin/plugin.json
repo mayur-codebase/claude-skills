@@ -1,0 +1,10 @@
+{
+  "name": "codebase-docs",
+  "description": "Keep all project documentation in one git repo. /codebase-docs init links a docs repo and records your rules; /codebase-docs writes or files docs into the right project folder, adapts the repo structure when needed, and pushes per your policy.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Mayur"
+  },
+  "homepage": "https://github.com/mayur-codebase/claude-skills",
+  "repository": "https://github.com/mayur-codebase/claude-skills"
+}

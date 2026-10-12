@@ -30,6 +30,25 @@ Persistent, queryable memory for client meeting notes — built for the project 
 | `/meeting-notes open [project]` | List unresolved questions and action items, oldest first |
 | `/meeting-notes list` | Show all projects with saved notes |
 
+### `/codebase-docs` — one git repo for all project documentation
+
+Stop hunting through Google Docs and Drive folders. Point the skill at a git repo you own and it keeps every project's docs there: it learns the repo's structure, files each new doc under the right project folder (creating or reshaping folders when a project needs it), keeps the README indexes current, and commits. Run `init` once to link the repo (it checks write access), tick which harness rules apply from a built-in checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose when to push. Settings live in `~/.claude/codebase-docs/config.json` on your machine — never in the repo.
+
+| Command | What it does |
+|---|---|
+| `/codebase-docs init` | Link the docs repo, verify write access, learn its structure, record rules and push policy |
+| `/codebase-docs bootstrap [project]` | One-time: draft a project's initial docs from its code, after you approve the plan |
+| `/codebase-docs add [what]` | Write or file a doc into the right project folder, update indexes, commit, push per policy |
+| `/codebase-docs find <query>` | Search the docs repo and report matches |
+| `/codebase-docs sync` / `push` | Pull with rebase / push pending commits (never force) |
+| `/codebase-docs status` / `config` | Show repo state / view and edit settings |
+
+The repo is docs-only by design: with the strict `no-source-code` rule, code files are blocked before every commit and only short labeled sample snippets are allowed inside Markdown. Every commit and push is also scanned for secrets and NDA/client-confidential content.
+
+Doc trigger is `suggest` (default: Claude offers to document milestones, you say yes), `manual` (only when you ask), or `auto` (writes at milestones itself); change it any time by saying so.
+
+Push policy is `ask` (confirm each time, default), `auto` (push right after each write), or `manual` (commit locally, push on request).
+
 ## Install
 
 ### Quick install (one command)
@@ -115,6 +134,9 @@ plugins/
   meeting-notes/
     .claude-plugin/plugin.json
     skills/meeting-notes/SKILL.md
+  codebase-docs/
+    .claude-plugin/plugin.json
+    skills/codebase-docs/SKILL.md
 ```
 
 To add a new skill, create `plugins/<name>/` with the same shape and add an entry to `marketplace.json`.
