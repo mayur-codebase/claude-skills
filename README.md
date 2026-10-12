@@ -49,6 +49,16 @@ Doc trigger is `suggest` (default: Claude offers to document milestones, you say
 
 Push policy is `ask` (confirm each time, default), `auto` (push right after each write), or `manual` (commit locally, push on request).
 
+### Getting started with `/codebase-docs`
+
+1. **Install** it (any method below; the quick install gets all skills) and start a new Claude Code session.
+2. **Run `/codebase-docs init` once.** It asks for your docs repo URL (you need write access) and where to clone it (default `~/Projects/codebase-docs`). Then pick the harness rules that apply from the checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose the doc trigger and push policy.
+3. **Optional: `/codebase-docs bootstrap`** from inside a project to draft its first docs from the code. It shows the plan and waits for your approval before writing.
+4. **Work normally.** In `suggest` mode Claude offers to document milestones (a finished feature, a decision, a root-caused bug); say yes and it files the doc in the right project folder. Or run `/codebase-docs add <what>` any time.
+5. **Find and sync:** `/codebase-docs find <query>` searches the docs; `/codebase-docs sync` pulls, and `/codebase-docs push` pushes pending commits.
+
+The docs clone lives outside your projects, so you can run this from any project's session. Change any setting later with `/codebase-docs config`, or just say it ("switch to auto", "stop suggesting").
+
 ## Install
 
 ### Quick install (one command)
@@ -72,6 +82,8 @@ From any shell (no interactive session needed):
 ```sh
 claude plugin marketplace add mayur-codebase/claude-skills
 claude plugin install ctx@claude-skills --scope user
+claude plugin install meeting-notes@claude-skills --scope user
+claude plugin install codebase-docs@claude-skills --scope user
 ```
 
 Or inside an interactive `claude` session:
@@ -79,13 +91,15 @@ Or inside an interactive `claude` session:
 ```
 /plugin marketplace add mayur-codebase/claude-skills
 /plugin install ctx@claude-skills
+/plugin install meeting-notes@claude-skills
+/plugin install codebase-docs@claude-skills
 ```
 
 > `/plugin` slash commands only exist in the terminal app — the desktop app, web, and IDE extensions use the options below instead.
 
 ### Desktop app
 
-Click the **+** button next to the prompt box → **Plugins**, add the marketplace `mayur-codebase/claude-skills`, then install **ctx**.
+Click the **+** button next to the prompt box → **Plugins**, add the marketplace `mayur-codebase/claude-skills`, then install the plugins you want (**ctx**, **meeting-notes**, **codebase-docs**).
 
 ### settings.json (works everywhere, no UI)
 
@@ -102,18 +116,16 @@ Add to `~/.claude/settings.json` (personal) or a repo's `.claude/settings.json` 
     }
   },
   "enabledPlugins": [
-    {
-      "name": "ctx",
-      "marketplace": "claude-skills",
-      "scope": "user"
-    }
+    { "name": "ctx", "marketplace": "claude-skills", "scope": "user" },
+    { "name": "meeting-notes", "marketplace": "claude-skills", "scope": "user" },
+    { "name": "codebase-docs", "marketplace": "claude-skills", "scope": "user" }
   ]
 }
 ```
 
 ### Manual copy (simplest, no plugin system)
 
-Copy the skill file to your personal skills directory:
+Copy a skill file to your personal skills directory (replace `ctx` with `meeting-notes` or `codebase-docs` for the others):
 
 ```sh
 mkdir -p ~/.claude/skills/ctx
