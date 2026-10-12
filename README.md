@@ -69,7 +69,13 @@ Works for every Claude Code environment (terminal, desktop, IDE):
 curl -fsSL https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/install.sh | sh
 ```
 
-Installs all skills in this repo to `~/.claude/skills/` — available in your next session, in every project. Re-run it any time to update.
+To install only specific skills, pass their names (`ctx`, `meeting-notes`, `codebase-docs`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/install.sh | sh -s -- codebase-docs
+```
+
+With no names, installs all skills in this repo to `~/.claude/skills/` — available in your next session, in every project. Re-run it any time to update.
 
 ### Other install options
 
