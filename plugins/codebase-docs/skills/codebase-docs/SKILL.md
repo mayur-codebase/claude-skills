@@ -1,12 +1,12 @@
 ---
 name: codebase-docs
-description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders. Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder (or `add --from <file|artifact link>` converts an existing Word/PDF/HTML/Claude-artifact into one), "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
+description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders — one repo for many projects (a folder each) or for a single project (organized by document type). Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder (or `add --from <file|artifact link>` converts an existing Word/PDF/HTML/Claude-artifact into one), "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
 argument-hint: "init | bootstrap [project] | add [what | --from <file|link> [--keep-original]] [--project <name>] | find <query> | sync | push | status | config | help"
 ---
 
 # codebase-docs — one git repo for all project documentation
 
-Docs for every project live in a single git repo. This skill links that repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), enforces the team's rules with a script, and pushes according to the user's policy.
+Docs live in a single git repo — either many projects (one folder each, `layout: multi`) or one project organized by document type (`layout: single`). This skill links that repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), enforces the team's rules with a script, and pushes according to the user's policy.
 
 Requires `git` and `python3`.
 
@@ -28,6 +28,7 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
   "branch": "main",
   "pushPolicy": "ask",
   "docTrigger": "suggest",
+  "layout": "multi",
   "projectMap": { "github.com/org/orders-api": "orders-api" },
   "harness": ["no-secrets", "folder-per-project", "kebab-case-names"],
   "confidentialNames": { "Real Client Name": "codename" },
@@ -37,6 +38,7 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
 ```
 
 - `pushPolicy`: `ask` (default — show what will be pushed, wait for yes), `auto` (push right after each doc write), `manual` (commit only; push on `/codebase-docs push`).
+- `layout`: `multi` (default — one top-level folder per project) or `single` (the repo documents one project; docs are filed by type in the existing top-level folders such as `requirements/`, `architecture/`, `meetings/`). In `single`, `projectMap` maps the code project to `"."`. If `layout` is missing (older configs), treat it as `single` when any `projectMap` value is `"."`, else `multi`; write the field at the next config change.
 - `docTrigger`: `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
 - `projectMap`: code project → docs folder, so it is never re-asked. The skill writes an entry whenever it resolves a project. Key = the code repo's normalized remote (`host/owner/repo`, no `.git`, no scheme); with no remote, the project's absolute path.
 - `attachmentMaxMB` (default 10) caps each attachment when `allow-attachments` is ticked.
@@ -66,14 +68,14 @@ Use AskUserQuestion where choices are fixed, plain questions for free text. On r
 1. **Repo** — URL of the docs git repo, or a path to an existing local clone.
 2. **Clone location** — a fixed absolute path independent of the current directory, so it works from inside any project's session. Default `$HOME/Projects/codebase-docs`; never inside the current project's working tree. If the path exists and its `origin` matches, reuse it; if it exists and differs, stop and ask. Clone it.
 3. **Git identity** — `git -C <clone> config user.email` must resolve (global or local). If it doesn't, ask the user for name and email and set them in the clone's local config only; if no one can be asked, stop and say identity is missing rather than inventing one.
-4. **Settings and harness — two AskUserQuestion calls of four questions each:**
+4. **Learn the repo and choose the layout** — read its `README.md`, `.codebase-docs.md` if present, and list two levels deep; summarize the structure in a few lines and ask the user to confirm or correct. Then set `layout`: if top-level folders are document types (requirements, architecture, reports, meetings, contracts, …) or the user says the repo covers one project, propose `single`; if they are project names, or the repo is empty and will hold several projects, propose `multi`. Confirm with the user (AskUserQuestion: multi-project / single-project). For an empty `single` repo, ask which type folders to create (default: `requirements`, `architecture`, `reports`, `meetings`, `estimates`, `contracts`, `references`, `templates`).
+5. **Settings and harness — two AskUserQuestion calls of four questions each:**
    - Call A: **Push policy** (`ask` recommended / `auto` / `manual`); **Doc trigger** (`suggest` recommended / `manual` / `auto` — warn that `auto` works best with `no-secrets` and `branch-and-pr` ticked); then the multi-select groups **Content safety** and **Confidentiality**.
-   - Call B: multi-select groups **Code policy**, **Structure**, **Format**, **Workflow**.
+   - Call B: multi-select groups **Code policy**, **Structure**, **Format**, **Workflow**. In `single` layout leave `folder-per-project` and `dated-notes` out of **Structure** (they assume per-project folders).
    - Each option is a catalog id (below), recommended ones marked. Nothing is on unless ticked. An "Other" entry on any question is folded into `customRules`.
    - Only if `anonymize-clients` is ticked, ask for the client/partner/vendor names that must never appear and a codename for each → `confidentialNames`. Client-name scanning exists only under this rule; leaving it unticked means names are never checked. Whenever `anonymize-clients` is unticked (at `init` or `config`), tell the user the saved `confidentialNames` will stop being checked and ask whether to delete them, so the config never holds names that look protected but aren't.
-   - Finally ask free text: **"Any custom rules not covered above?"** (empty = none) → `customRules`, one rule per entry.
-5. **Learn the repo** — read its `README.md`, `.codebase-docs.md` if present, and list two levels deep. Summarize the structure in a few lines and ask the user to confirm or correct.
-6. **Write config.json**, then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). Project folders are **not** created here — they appear at the first `add`/`bootstrap`.
+   - Finally ask free text: **"Any custom rules not covered above?"** (empty = none) → `customRules`, one rule per entry (e.g. a file-naming pattern).
+6. **Write config.json**, then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). In `multi`, project folders are **not** created here — they appear at the first `add`/`bootstrap`; the root index is a `| Project | Summary |` table. In `single`, create the chosen type folders (each with a `.gitkeep`) and make the root `README.md` a short project description plus a `Structure` list of those folders. Never overwrite existing starter files.
 7. **Check and commit the starter files** — `git add` them, run the pre-commit check (staged, no `--code`) and fix any BLOCK, then commit (`docs: initialize docs repo`).
 8. **Write-access check** — only possible once the clone has a commit, which is why it comes after step 7. Run `git -C <clone> push --dry-run origin HEAD:<branch>`. If it fails, report the exact error and stop; don't continue with a read-only repo.
 9. **Push the starter commit.** It is the one push `confidentiality-review` does not apply to (it holds no project content). With `branch-and-pr` and a non-empty repo, follow "Branch and PR" instead.
@@ -95,10 +97,10 @@ Use AskUserQuestion where choices are fixed, plain questions for free text. On r
 | | `snippet-limit` ★ | Snippets are samples: at most 30 lines, labeled "Sample", never a verbatim copy of code from the project |
 | | `link-not-copy` | Point to code by repo, path and commit permalink instead of pasting it |
 | | `allow-attachments` | Opt-in: original files (`.pdf`, `.docx`, `.xlsx`, `.pptx`, `.csv`, `.html`, images) may be kept in `<project>/attachments/`, each linked from a Markdown page, under `attachmentMaxMB`. The checker scans their text; anything it can't read is flagged for your review |
-| Structure | `folder-per-project` ★ | One top-level folder per project, named in kebab-case |
+| Structure | `folder-per-project` ★ | `multi` layout only: one top-level folder per project, named in kebab-case |
 | | `index-readmes` ★ | Keep each project `README.md` and the root `README.md` index up to date |
 | | `adr-decisions` | Decisions are ADRs in `decisions/YYYY-MM-DD-title.md` (context, decision, consequences) |
-| | `dated-notes` | Working notes in `notes/YYYY-MM-DD-title.md` |
+| | `dated-notes` | `multi` layout only: working notes in `notes/YYYY-MM-DD-title.md` |
 | Format | `markdown-only` ★ | Markdown only (no images either); link to external files instead of committing binaries. Narrows `no-source-code`'s image allowance |
 | | `kebab-case-names` ★ | File and folder names are lowercase kebab-case (`README.md` excepted) |
 | | `frontmatter` | Every content doc starts with frontmatter: `title`, `owner`, `updated`, `status` |
@@ -123,7 +125,7 @@ python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.cla
 - `--code`: the code project(s) being documented (the session's working directory, or the path given to `bootstrap`). Needed to catch verbatim copies; skip it only when no code project is known.
 - Output: `BLOCK` lines (stop), `FLAG` lines (show the user, keep or reword, proceed only on an explicit answer), `MANUAL` lines (rules the script can't judge — you must verify each one against what you wrote and fix violations), then `RESULT PASS|FLAGS|FAIL`. Exit 0 / 2 / 1.
 - Thresholds, so results are reproducible: code blocks over 30 lines blocked; a block is "labeled" if the word *Sample* is on the fence line or the nearest non-blank line above (`mermaid` blocks exempt); a block is a "verbatim copy" if at least 3 non-trivial lines match a project file and they are at least 50% of the block, or the doc contains a whole project file; contract/pricing language is a FLAG, everything else listed is a BLOCK.
-- **Attachments** (`allow-attachments`): files in `<project>/attachments/` are exempt from the file-type rule but must be an allowed type, under the size limit, kebab-case named, and linked from a Markdown page in the same project. The script extracts and scans the text of `.docx/.pptx/.xlsx`, `.html`, `.csv` and (when `pdftotext` is installed) `.pdf` with the same secret/internal-address/confidential-name checks; unreadable content (scanned PDFs, images excluded) gets a `FLAG` — open it yourself, check it, and ask the user before keeping it. HTML containing scripts is flagged too.
+- **Attachments** (`allow-attachments`): files in `<project>/attachments/` (in `single` layout: anywhere inside a type folder, e.g. `contracts/signed-msa.pdf`) are exempt from the file-type rule but must be an allowed type, under the size limit, kebab-case named, and linked from a Markdown page in the same project (`single`: in the same type folder). The script extracts and scans the text of `.docx/.pptx/.xlsx`, `.html`, `.csv` and (when `pdftotext` is installed) `.pdf` with the same secret/internal-address/confidential-name checks; unreadable content (scanned PDFs, images excluded) gets a `FLAG` — open it yourself, check it, and ask the user before keeping it. HTML containing scripts is flagged too.
 - `--summary` prints the confidentiality summary (files and line counts, attachments, code blocks, URLs, amounts/percentages, confidential names found) — show it verbatim for `confidentiality-review`.
 - A ticked rule is **not overridable in the moment**. If the user asks for something it forbids ("just push the file"), name the rule that blocks it and say they can change it via `/codebase-docs config`; don't bypass the check.
 - On BLOCK: don't commit. Report each line, **unstage** the offending paths (`git -C <clone> reset -q -- <path>`) without deleting them, then fix the content and re-run. Files this run created that were never committed may be edited or removed to fix them; existing committed docs are never deleted (see Safety).
@@ -133,6 +135,10 @@ python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.cla
 ## Resolving the project
 
 Used by `add` and `bootstrap`.
+
+**`layout: single`** — there is no project folder to pick; docs go in the repo's type folders (see "Placement in a single-project repo"). Only check that the current code project belongs here: look it up in `projectMap`. Mapped → proceed. Not mapped → say this repo documents a different project and ask whether to file the doc here anyway (then add the mapping `"<key>": "."`) or stop. Skip steps 1–6 below.
+
+**`layout: multi`:**
 
 1. `--project <name>` wins.
 2. Else look the current code project up in `projectMap` (key as defined above).
@@ -148,21 +154,21 @@ Opt-in, explicit only — never triggered by `docTrigger`. Drafts the first docs
 1. **Resolve the project** (above). If its folder already has docs, say so and ask whether to extend (fill gaps only) or stop; never overwrite existing files.
 2. **Pull** — `git -C <clonePath> pull --rebase`; on a dirty tree or conflict, stop and report.
 3. **Read the code project proportionally**, in the working directory or the path given: README, manifests, entry points, config/infra files, layout, test names, CI workflows. Fan out Explore agents for a large repo. Skip `node_modules`, `.git`, build output, caches and generated code. Note names and purposes — you are describing the system, not copying it.
-4. **Propose a plan before writing anything**: files to create (default `README.md`, `overview.md`, `architecture.md`, `setup.md`; add `decisions/` or `runbooks/` only when the code supports them), one line each on what it covers and its source, and the harness rules that apply. Wait for approval or edits; don't write without a yes.
+4. **Propose a plan before writing anything**: files to create (`multi` default: `README.md`, `overview.md`, `architecture.md`, `setup.md`; add `decisions/` or `runbooks/` only when the code supports them; `single`: the root `README.md` description plus an architecture doc in `architecture/`, setup/run notes in `references/` or the best-fitting folder, named per the repo's naming rule), one line each on what it covers and its source, and the harness rules that apply. Wait for approval or edits; don't write without a yes.
 5. **Write the docs** in prose: purpose, tech stack, components and how they interact, data flow, how to run/build/deploy, environments, external dependencies, known gaps. At most a few short labeled sample snippets; link to code by repo, path and commit instead of pasting. Never invent: anything not evident from the code is `TODO:`. Use codenames from `confidentialNames` wherever the real name would appear.
-6. **Update indexes** (project `README.md` and the root index).
+6. **Update indexes** (`multi`: project `README.md` and the root index; `single`: the root `README.md`).
 7. **Pre-commit check** (staged, with `--code <project path>`), passing `--message "docs(<project>): bootstrap initial docs"`, then **commit** once with that message.
 8. **Push and report** — follow `add` steps 9–10. The report also lists anything left as `TODO:` and the questions the code couldn't answer.
 
 ## add
 
-1. **Resolve the project** (above).
+1. **Resolve the project** (above; in `single` layout just confirm the code project is mapped).
 2. **Pull first** — `git -C <clonePath> pull --rebase`. If the tree is dirty or the pull conflicts, stop and report; never discard changes.
 3. **Apply the harness** — treat every id in `harness` and every `customRules` entry as a hard constraint on what you write, where you put it, and how you commit and push. If a request conflicts with a ticked rule, say so rather than break it.
 4. **Understand the existing structure** for that project: list its folder, read its `README.md` and neighbouring docs of the same kind so new content matches their format and depth; follow templates found in the repo.
-5. **Decide placement.** Put the doc where the existing convention says (decisions → `decisions/`). If the project needs structure the repo lacks, adapt it: add a folder, split a doc, or move/rename files — keeping both README indexes accurate. State any restructure, especially moves and renames, before doing it (`confirm-restructure` makes approval mandatory); never delete docs without explicit approval.
+5. **Decide placement.** In `single` layout use "Placement in a single-project repo". In `multi`, put the doc where the existing convention says (decisions → `decisions/`). If the project needs structure the repo lacks, adapt it: add a folder, split a doc, or move/rename files — keeping both README indexes accurate. State any restructure, especially moves and renames, before doing it (`confirm-restructure` makes approval mandatory); never delete docs without explicit approval.
 6. **Write the doc** from what the user described and what the session actually knows (code, decisions made, commands run). Don't invent facts; mark gaps `TODO:` or ask. Never include secrets, tokens or credentials — refer to where they live instead.
-7. **Update indexes** (project and root `README.md`).
+7. **Update indexes** — in `multi`, the project and root `README.md`; in `single`, the root `README.md` Structure list (and a type folder's `README.md` if it has one), only when a folder was added or its purpose changed.
 8. **Pre-commit check** (staged, `--code <project path>`, `--message "<subject>"`), then **commit** with a short descriptive one-line subject (`docs(<project>): add <topic>`); with `one-line-commits` never add a body. Committing is part of the user's request to store docs here.
 9. **Push per policy**
    - Run the pre-commit check in range mode (`--range origin/<branch>..HEAD`, or `ALL` if the remote branch doesn't exist).
@@ -171,6 +177,10 @@ Opt-in, explicit only — never triggered by `docTrigger`. Drafts the first docs
    - Else `auto`: push and report. `manual`: don't push; say it is committed locally and `/codebase-docs push` will push it.
    - `branch-and-pr` ticked: use "Branch and PR" below instead of pushing the main branch.
 10. **Report:** file path(s) relative to the repo, commit hash, push status, and — when the host is GitHub — a link (`<repo-url>/blob/<branch>/<path>`).
+
+### Placement in a single-project repo
+
+Choose the type folder by what the doc is: requirements/specs → `requirements/`, design and decisions (ADRs) → `architecture/`, status/analysis → `reports/`, calls and minutes → `meetings/`, quotes and effort → `estimates/`, agreements → `contracts/`, external or imported material → `references/`, reusable forms → `templates/`. Map to whichever of the repo's actual folders fits best; if none fits, ask — new folders need approval (`confirm-restructure`) and an update to the root `README.md` Structure list. Follow the file-naming pattern in `customRules` or `.codebase-docs.md`, and match neighbouring files in that folder. If a doc with the same subject exists, update it in place with the next version instead of adding a copy.
 
 ### Branch and PR
 
@@ -189,7 +199,7 @@ Brings documents that already exist (Word, PDF, HTML, Excel, PowerPoint, a Claud
    - Unreadable or empty source → say so; never fabricate content.
 2. **Convert faithfully** to a Markdown doc: keep headings, lists and tables; describe charts/images in a line instead of embedding them (or note `TODO: diagram — see original`); replace real client names with codenames and redact secrets per the harness. Open the doc with a line `Imported from <file name or artifact title>, <YYYY-MM-DD>` — no private URLs.
 3. **Placement and naming** as `add` (project folder, kebab-case name from the source's title).
-4. **Original file** — not committed by default. Keep it only when the user passes `--keep-original` (or asks) **and** `allow-attachments` is ticked: copy it to `<project>/attachments/<kebab-name>.<ext>` and link it from the Markdown page ("Original: [name](attachments/name.ext)"). If the rule isn't ticked, say attachments are off, offer to enable it via `config`, and commit only the Markdown. A Claude artifact kept as `.html` loses nothing but must be downloaded to view — mention that.
+4. **Original file** — not committed by default. Keep it only when the user passes `--keep-original` (or asks) **and** `allow-attachments` is ticked: copy it to `<project>/attachments/<kebab-name>.<ext>` (`single`: into the matching type folder, named per the repo's naming rule) and link it from the Markdown page ("Original: [name](attachments/name.ext)"). If the rule isn't ticked, say attachments are off, offer to enable it via `config`, and commit only the Markdown. A Claude artifact kept as `.html` loses nothing but must be downloaded to view — mention that.
 5. **The original defeats redaction.** If step 2 codenamed or redacted anything, the untouched original still contains it, and the checker will BLOCK it. Explain this rather than working around it; the Markdown conversion is the shareable version.
 6. Continue with `add` steps 7–10 (indexes, pre-commit check, commit, push). The pre-commit check covers the Markdown and any attachment.
 
@@ -215,7 +225,7 @@ Pull first (`git -C <clonePath> pull --rebase`); if the pull fails or there is n
 
 ## Conventions file
 
-`.codebase-docs.md` in the docs repo states the rules in plain language so other machines and agents follow the same layout: folder-per-project, naming, templates, index maintenance, what never goes in docs, plus the selected `harness` rules and `customRules`. Never include `confidentialNames`. Update it whenever the structure or rules intentionally change; it is committed with the docs.
+`.codebase-docs.md` in the docs repo states the layout (`multi` or `single`) and rules in plain language so other machines and agents follow the same structure: folder-per-project (`multi`) or the type folders (`single`), naming, templates, index maintenance, what never goes in docs, plus the selected `harness` rules and `customRules`. Never include `confidentialNames`. Update it whenever the structure or rules intentionally change; it is committed with the docs.
 
 ## Safety
 

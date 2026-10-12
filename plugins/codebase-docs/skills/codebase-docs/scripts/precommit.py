@@ -16,10 +16,10 @@ import argparse, json, os, re, shutil, subprocess, sys, tempfile, zipfile
 
 DOC_EXT = {'.md', '.mdx'}
 IMG_EXT = {'.png', '.jpg', '.jpeg', '.svg'}
-ALWAYS_OK = {'.gitignore', '.gitattributes'}
+ALWAYS_OK = {'.gitignore', '.gitattributes', '.gitkeep'}
 ATTACH_EXT = {'.pdf', '.docx', '.xlsx', '.pptx', '.csv', '.html'} | IMG_EXT
 OFFICE_PARTS = re.compile(r'^(word/(document|header\d*|footer\d*|comments)|ppt/(slides/slide\d+|notesSlides/notesSlide\d+)|xl/(sharedStrings|worksheets/sheet\d+))\.xml$')
-NAME_OK = {'README.md', '.codebase-docs.md', '.gitignore', '.gitattributes'}
+NAME_OK = {'README.md', '.codebase-docs.md', '.gitignore', '.gitattributes', '.gitkeep'}
 INDEX_FILES = {'README.md', '.codebase-docs.md'}
 SKIP_DIRS = {'.git', 'node_modules', 'dist', 'build', '.venv', 'venv', '__pycache__', '.next', 'target', 'vendor'}
 MAX_BLOCK = 30
@@ -47,8 +47,8 @@ MANUAL = {
     'no-third-party-content': 'no pasted copyrighted/licensed material; summarize and link',
     'link-not-copy': 'code referenced by repo/path/commit, not pasted',
     'link-code-repo': "project README links its code repo(s)",
-    'adr-decisions': 'decisions are ADRs in decisions/YYYY-MM-DD-title.md',
-    'dated-notes': 'working notes are in notes/YYYY-MM-DD-title.md',
+    'adr-decisions': 'decisions are ADRs (context, decision, consequences) in the repo\'s decisions location',
+    'dated-notes': 'working notes are dated, in the notes location',
     'mermaid-diagrams': 'diagrams are Mermaid blocks, not images',
 }
 
@@ -184,6 +184,11 @@ def main():
 
     type_rules = H & {'no-source-code', 'markdown-only'}
     attach_on = 'allow-attachments' in H
+    single = cfg.get('layout') == 'single'
+    def is_attachment(f):
+        parts = f.split('/')
+        ext = os.path.splitext(f)[1].lower()
+        return ext in ATTACH_EXT and ('attachments' in parts[1:-1] or (single and len(parts) >= 2))
     max_bytes = int(float(cfg.get('attachmentMaxMB', 10)) * 1024 * 1024)
     md_cache = {}
     allowed = DOC_EXT if 'markdown-only' in H else DOC_EXT | IMG_EXT
@@ -196,7 +201,7 @@ def main():
     for f in files:
         base, ext = os.path.basename(f), os.path.splitext(f)[1].lower()
         parts = f.split('/')
-        if attach_on and len(parts) >= 3 and parts[1] == 'attachments' and ext in ATTACH_EXT:
+        if attach_on and is_attachment(f):
             data = git_bytes(clone, 'show', (':' if a.mode == 'staged' else 'HEAD:') + f)
             if len(data) > max_bytes:
                 add('BLOCK', f, 0, f'attachment is {len(data) / 1048576:.1f} MB (limit {max_bytes / 1048576:g} MB)')
@@ -287,7 +292,7 @@ def main():
             for i, j, lang in fenced_blocks(tl):
                 blocks += 1
                 previews.append(f'  {f}:{i + 1} ({j - i - 1} lines) {tl[i + 1].strip()[:70] if i + 1 < len(tl) else ""}')
-        att = [f for f in files if len(f.split('/')) >= 3 and f.split('/')[1] == 'attachments']
+        att = [f for f in files if attach_on and is_attachment(f)]
         print('attachments:', ', '.join(att) or 'none')
         print('code blocks:', blocks)
         for pv in previews:

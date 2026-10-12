@@ -32,7 +32,7 @@ Persistent, queryable memory for client meeting notes — built for the project 
 
 ### `/codebase-docs` — one git repo for all project documentation
 
-Stop hunting through Google Docs and Drive folders. Point the skill at a git repo you own and it keeps every project's docs there: it learns the repo's structure, files each new doc under the right project folder (creating or reshaping folders when a project needs it), keeps the README indexes current, and commits. Run `init` once to link the repo (it checks write access), tick which harness rules apply from a built-in checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose when to push. Settings live in `~/.claude/codebase-docs/config.json` on your machine — never in the repo.
+Stop hunting through Google Docs and Drive folders. Point the skill at a git repo you own and it keeps your project docs there — one repo for many projects (a folder each) or for a single project (organized by document type: requirements, architecture, meetings, contracts, …): it learns the repo's structure, files each new doc under the right project folder (creating or reshaping folders when a project needs it), keeps the README indexes current, and commits. Run `init` once to link the repo (it checks write access), tick which harness rules apply from a built-in checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose when to push. Settings live in `~/.claude/codebase-docs/config.json` on your machine — never in the repo.
 
 | Command | What it does |
 |---|---|
