@@ -8,6 +8,11 @@
       "name": "ctx",
       "source": "./plugins/ctx",
       "description": "Portable project-context briefings: build, load, and sync per-project context files stored outside the repo."
+    },
+    {
+      "name": "meeting-notes",
+      "source": "./plugins/meeting-notes",
+      "description": "Durable memory for client meeting notes: save normalizes notes into a standard format, ask answers with citations, history/open track decisions and open questions per project."
     }
   ]
 }

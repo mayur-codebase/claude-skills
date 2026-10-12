@@ -1,0 +1,10 @@
+{
+  "name": "meeting-notes",
+  "description": "Durable memory for client meeting notes during project discovery — /meeting-notes save normalizes pasted notes into a standard format, ask answers with exact citations, history and open track how feature asks, decisions, and open questions evolve. Notes live in ~/.claude/meeting-notes/, never in the repo.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Mayur"
+  },
+  "homepage": "https://github.com/mayur-codebase/claude-skills",
+  "repository": "https://github.com/mayur-codebase/claude-skills"
+}

@@ -18,6 +18,18 @@ Prime any Claude Code session with what a project or folder contains: layout, st
 | `/ctx list` | Show all saved contexts with their verified dates |
 | `/ctx help` | Show the command table |
 
+### `/meeting-notes` — durable memory for client meetings
+
+Persistent, queryable memory for client meeting notes — built for the project discovery phase, where feature asks, decisions, and open questions accumulate across many calls and must be answerable later with exact sources. Paste raw notes and the skill normalizes them into a standard format (feature asks, decisions, open questions, action items, raw notes preserved verbatim), assigns stable IDs (`FA-n`, `D-n`, `Q-n`), and tracks how requirements evolve — superseded decisions are linked, never overwritten. Notes are stored in `~/.claude/meeting-notes/<project>/` on your machine — never inside the repo, never committed.
+
+| Command | What it does |
+|---|---|
+| `/meeting-notes save [project]` | Paste raw notes; normalizes and files them, updates the index and trackers |
+| `/meeting-notes ask <question>` | Answer from stored notes with exact citations (meeting date + item ID) |
+| `/meeting-notes history [topic]` | Timeline of meetings, or trace one topic's evolution across calls |
+| `/meeting-notes open [project]` | List unresolved questions and action items, oldest first |
+| `/meeting-notes list` | Show all projects with saved notes |
+
 ## Install
 
 ### Quick install (one command)
@@ -100,6 +112,9 @@ plugins/
   ctx/
     .claude-plugin/plugin.json    # plugin manifest
     skills/ctx/SKILL.md           # the skill itself
+  meeting-notes/
+    .claude-plugin/plugin.json
+    skills/meeting-notes/SKILL.md
 ```
 
 To add a new skill, create `plugins/<name>/` with the same shape and add an entry to `marketplace.json`.
