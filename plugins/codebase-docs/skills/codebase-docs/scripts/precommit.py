@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """codebase-docs pre-commit / pre-push check (stdlib only).
 
-  precommit.py --clone DIR --config FILE [--mode staged|range] [--range REV|ALL]
+  precommit.py --clone DIR --config FILE [--repo NAME] [--mode staged|range] [--range REV|ALL]
                [--code DIR ...] [--message TEXT] [--summary]
 
 staged: checks `git diff --cached` (contents read from the index).
@@ -51,6 +51,18 @@ MANUAL = {
     'dated-notes': 'working notes are dated, in the notes location',
     'mermaid-diagrams': 'diagrams are Mermaid blocks, not images',
 }
+
+
+def resolve_cfg(raw, name):
+    """Flat (single-repo) config, or `repos` map: global keys merged under the chosen repo's keys."""
+    repos = raw.get('repos')
+    if not repos:
+        return raw
+    name = name or raw.get('defaultRepo') or (next(iter(repos)) if len(repos) == 1 else None)
+    if name not in repos:
+        sys.exit('--repo required, one of: ' + ', '.join(repos))
+    base = {k: v for k, v in raw.items() if k not in ('repos', 'projectMap', 'defaultRepo')}
+    return {**base, **repos[name]}
 
 
 def git(clone, *args, check=False):
@@ -130,6 +142,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--clone', required=True)
     ap.add_argument('--config', required=True)
+    ap.add_argument('--repo', help='docs repo name when config.json has several')
     ap.add_argument('--mode', choices=['staged', 'range'], default='staged')
     ap.add_argument('--range')
     ap.add_argument('--code', action='append', default=[])
@@ -138,7 +151,7 @@ def main():
     a = ap.parse_args()
 
     clone = os.path.abspath(os.path.expanduser(a.clone))
-    cfg = json.load(open(os.path.expanduser(a.config)))
+    cfg = resolve_cfg(json.load(open(os.path.expanduser(a.config))), a.repo)
     H = set(cfg.get('harness', []))
     names = cfg.get('confidentialNames', {}) if 'anonymize-clients' in H else {}
 

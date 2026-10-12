@@ -32,11 +32,12 @@ Persistent, queryable memory for client meeting notes — built for the project 
 
 ### `/codebase-docs` — one git repo for all project documentation
 
-Stop hunting through Google Docs and Drive folders. Point the skill at a git repo you own and it keeps your project docs there — one repo for many projects (a folder each) or for a single project (organized by document type: requirements, architecture, meetings, contracts, …): it learns the repo's structure, files each new doc under the right project folder (creating or reshaping folders when a project needs it), keeps the README indexes current, and commits. Run `init` once to link the repo (it checks write access), tick which harness rules apply from a built-in checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose when to push. Settings live in `~/.claude/codebase-docs/config.json` on your machine — never in the repo.
+Stop hunting through Google Docs and Drive folders. Point the skill at one or several git repos you own (each with its own layout, rules and push policy; every code project is mapped to one of them) and it keeps your project docs there — one repo for many projects (a folder each) or for a single project (organized by document type: requirements, architecture, meetings, contracts, …): it learns the repo's structure, files each new doc under the right project folder (creating or reshaping folders when a project needs it), keeps the README indexes current, and commits. Run `init` once to link the repo (it checks write access), tick which harness rules apply from a built-in checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose when to push. Settings live in `~/.claude/codebase-docs/config.json` on your machine — never in the repo.
 
 | Command | What it does |
 |---|---|
-| `/codebase-docs init` | Link the docs repo, verify write access, learn its structure, record rules and push policy |
+| `/codebase-docs init` | Link a docs repo (run again to add more), verify write access, learn its structure, record its rules and push policy |
+| `/codebase-docs repos` | List your configured docs repos and which code projects use each |
 | `/codebase-docs bootstrap [project]` | One-time: draft a project's initial docs from its code, after you approve the plan |
 | `/codebase-docs add --from <file\|link> [--keep-original]` | Import an existing Word/PDF/HTML/Excel/PowerPoint file or Claude artifact as a Markdown doc; optionally keep the original as an attachment |
 | `/codebase-docs add [what]` | Write or file a doc into the right project folder, update indexes, commit, push per policy |
@@ -55,7 +56,7 @@ Push policy is `ask` (confirm each time, default), `auto` (push right after each
 ### Getting started with `/codebase-docs`
 
 1. **Install** it (any method below; the quick install gets all skills) and start a new Claude Code session.
-2. **Run `/codebase-docs init` once.** It asks for your docs repo URL (you need write access) and where to clone it (default `~/Projects/codebase-docs`). Then pick the harness rules that apply from the checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose the doc trigger and push policy.
+2. **Run `/codebase-docs init`** (once per docs repo; run it again to link more). It asks for your docs repo URL (you need write access) and where to clone it (default `~/Projects/codebase-docs`). Then pick the harness rules that apply from the checklist (content safety, NDA/confidentiality, code policy, structure, format, workflow), add any custom rules, and choose the doc trigger and push policy.
 3. **Optional: `/codebase-docs bootstrap`** from inside a project to draft its first docs from the code. It shows the plan and waits for your approval before writing.
 4. **Work normally.** In `suggest` mode Claude offers to document milestones (a finished feature, a decision, a root-caused bug); say yes and it files the doc in the right project folder. Or run `/codebase-docs add <what>` any time.
 5. **Find and sync:** `/codebase-docs find <query>` searches the docs; `/codebase-docs sync` pulls, and `/codebase-docs push` pushes pending commits.

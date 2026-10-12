@@ -1,12 +1,12 @@
 ---
 name: codebase-docs
-description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders — one repo for many projects (a folder each) or for a single project (organized by document type). Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder (or `add --from <file|artifact link>` converts an existing Word/PDF/HTML/Claude-artifact into one), "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
-argument-hint: "init | bootstrap [project] | add [what | --from <file|link> [--keep-original]] [--project <name>] | find <query> | sync | push | status | config | help"
+description: Store and find project documentation in central git docs repos instead of scattered Google Docs/Drive folders — one or several repos, each holding many projects (a folder each) or a single project (organized by document type). Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder (or `add --from <file|artifact link>` converts an existing Word/PDF/HTML/Claude-artifact into one), "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
+argument-hint: "init | repos | bootstrap [project] | add [what | --from <file|link> [--keep-original]] [--project <name>] | find <query> [--all] | sync | push | status | config | help   (any command: --repo <name>)"
 ---
 
-# codebase-docs — one git repo for all project documentation
+# codebase-docs — git repos for all project documentation
 
-Docs live in a single git repo — either many projects (one folder each, `layout: multi`) or one project organized by document type (`layout: single`). This skill links that repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), enforces the team's rules with a script, and pushes according to the user's policy.
+Docs live in one or more git repos. Each repo holds either many projects (one folder each, `layout: multi`) or one project organized by document type (`layout: single`). This skill links those repos, maps each code project to its repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), enforces the team's rules with a script, and pushes according to the user's policy.
 
 Requires `git` and `python3`.
 
@@ -14,7 +14,7 @@ Requires `git` and `python3`.
 
 ```
 $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never committed
-<clonePath>/                              # local clone of the docs repo (default $HOME/Projects/codebase-docs)
+<clonePath>/                              # one local clone per docs repo (default $HOME/Projects/<repo-name>)
 <clonePath>/.codebase-docs.md             # in-repo conventions file, committed
 <this skill's dir>/scripts/precommit.py   # the rule checker (see "Pre-commit check")
 ```
@@ -23,25 +23,37 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
 
 ```json
 {
-  "repo": "git@github.com:org/docs.git",
-  "clonePath": "/Users/me/Projects/codebase-docs",
-  "branch": "main",
-  "pushPolicy": "ask",
   "docTrigger": "suggest",
-  "layout": "multi",
-  "projectMap": { "github.com/org/orders-api": "orders-api" },
-  "harness": ["no-secrets", "folder-per-project", "kebab-case-names"],
-  "confidentialNames": { "Real Client Name": "codename" },
-  "attachmentMaxMB": 10,
-  "customRules": ["free-text rules added at the end of init"]
+  "defaultRepo": "scm",
+  "repos": {
+    "scm": {
+      "repo": "git@github.com:org/scm-docs.git",
+      "clonePath": "/Users/me/Projects/scm-docs",
+      "branch": "main",
+      "layout": "single",
+      "pushPolicy": "ask",
+      "harness": ["no-secrets", "no-source-code", "kebab-case-names"],
+      "confidentialNames": { "Real Client Name": "codename" },
+      "attachmentMaxMB": 10,
+      "customRules": ["free-text rules added at the end of init"]
+    },
+    "platform": { "repo": "git@github.com:org/platform-docs.git", "clonePath": "/Users/me/Projects/platform-docs", "branch": "main", "layout": "multi", "pushPolicy": "manual", "harness": [], "customRules": [] }
+  },
+  "projectMap": {
+    "github.com/org/scm-connect": { "repo": "scm", "folder": "." },
+    "github.com/org/orders-api": { "repo": "platform", "folder": "orders-api" }
+  }
 }
 ```
 
+- **Several repos.** `repos` is a map of short names (kebab-case, e.g. `scm`, `platform`) to repo entries. Each repo has **its own** settings — `repo`, `clonePath`, `branch`, `layout`, `pushPolicy`, `harness`, `confidentialNames`, `attachmentMaxMB`, `customRules` — so a client repo can be strict and an internal one relaxed. Global keys are `docTrigger`, `defaultRepo` and `projectMap`.
+- **Active repo.** Every setting named below (`clonePath`, `layout`, `harness`, `pushPolicy`, …) means the entry of the repo chosen by "Choosing the repo". Pass its name to the checker as `--repo <name>`.
+- **Older flat configs** (no `repos` key, with `repo`/`clonePath`/`harness` at the top level) are one repo: read them as `repos.<name>` where `<name>` is the repo URL's basename; rewrite them in the new shape at the next config change, never silently mid-command. Old `projectMap` values are strings (a folder, or `"."`) → `{ "repo": <that repo>, "folder": <string> }`.
 - `pushPolicy`: `ask` (default — show what will be pushed, wait for yes), `auto` (push right after each doc write), `manual` (commit only; push on `/codebase-docs push`).
-- `layout`: `multi` (default — one top-level folder per project) or `single` (the repo documents one project; docs are filed by type in the existing top-level folders such as `requirements/`, `architecture/`, `meetings/`). In `single`, `projectMap` maps the code project to `"."`. If `layout` is missing (older configs), treat it as `single` when any `projectMap` value is `"."`, else `multi`; write the field at the next config change.
-- `docTrigger`: `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
-- `projectMap`: code project → docs folder, so it is never re-asked. The skill writes an entry whenever it resolves a project. Key = the code repo's normalized remote (`host/owner/repo`, no `.git`, no scheme); with no remote, the project's absolute path.
-- `attachmentMaxMB` (default 10) caps each attachment when `allow-attachments` is ticked.
+- `layout`: `multi` (default — one top-level folder per project) or `single` (the repo documents one project; docs are filed by type in the existing top-level folders such as `requirements/`, `architecture/`, `meetings/`; its `projectMap` folder is `"."`). If `layout` is missing, treat it as `single` when the repo's mapped folder is `"."`, else `multi`.
+- `docTrigger` (global): `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per the repo's `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
+- `projectMap`: code project → `{repo, folder}`, so neither is re-asked. The skill writes an entry whenever it resolves a project. Key = the code repo's normalized remote (`host/owner/repo`, no `.git`, no scheme; a path key goes stale if the project directory moves — re-resolve then); with no remote, the project's absolute path. A project maps to exactly one repo.
+- `attachmentMaxMB` (per repo, default 10) caps each attachment when `allow-attachments` is ticked.
 - `confidentialNames` stays on the user's machine; never write it (or any real name from it) into the docs repo, including `.codebase-docs.md`.
 - Read `config.json` at the start of every command except `init`/`help`. If missing, say so and run `init`.
 - Locating the script: it sits in `scripts/` next to this `SKILL.md` (the skill's base directory is shown when the skill loads). If that path is missing, look in `$HOME/.claude/skills/codebase-docs/scripts/` then `find $HOME/.claude/plugins -path '*codebase-docs/scripts/precommit.py'`.
@@ -50,36 +62,38 @@ $HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never co
 
 | Input | Action |
 |---|---|
-| `init` | Link the repo, check access, pick settings and harness rules, push the starter files |
+| `init` | Link a docs repo (the first, or another one), check access, pick its settings and harness rules, push the starter files |
+| `repos` | List the configured repos: name, layout, clone path, which code projects use each |
 | `bootstrap [project]` | One-time: draft the initial docs for a project from its code, after you approve the plan |
 | `add [what] [--project <name>]` | Write or file a doc into the right folder (default verb when the user just describes docs to write) |
 | `add --from <file\|link> [--keep-original]` | Convert an existing Word/PDF/HTML/Excel/PowerPoint file or a Claude artifact link into a Markdown doc; optionally keep the original as an attachment |
-| `find <query>` | Search the docs repo and report matching files |
-| `sync` | `git pull --rebase`, then offer to push unpushed commits |
+| `find <query> [--all]` | Search the active repo (`--all`: every configured repo) and report matching files |
+| `sync [--all]` | `git pull --rebase`, then offer to push unpushed commits |
 | `push` | Check and push pending commits |
-| `status` | Linked repo, branch, uncommitted/unpushed changes, current project's folder |
-| `config` | Show config; re-open the harness checklist, change `docTrigger`/`pushPolicy`, or edit any field |
+| `status` | For the active repo (or `--all`): branch, uncommitted/unpushed changes, current project's folder |
+| `config [--repo <name>]` | Show config; re-open a repo's harness checklist, change `docTrigger`/`pushPolicy`, or edit any field. `config remove-repo <name>` drops a repo from the config (asks first; never deletes the clone or the remote) |
+| (any command) | `--repo <name>` overrides the repo choice for that command |
 | `help` | Print this table plus: `Example: /codebase-docs add "how we deploy the orders API"` |
 
 ## init
 
-Use AskUserQuestion where choices are fixed, plain questions for free text. On re-run, show current values and ask only what to change.
+Use AskUserQuestion where choices are fixed, plain questions for free text. `init` links **one repo per run**. If repos are already configured, list them and ask: add another repo, or change one (then show its current values and ask only what to change). Run `init` again any time to add more.
 
-1. **Repo** — URL of the docs git repo, or a path to an existing local clone.
-2. **Clone location** — a fixed absolute path independent of the current directory, so it works from inside any project's session. Default `$HOME/Projects/codebase-docs`; never inside the current project's working tree. If the path exists and its `origin` matches, reuse it; if it exists and differs, stop and ask. Clone it.
+1. **Repo** — URL of the docs git repo, or a path to an existing local clone, then a short **name** for it (kebab-case; default the URL's basename minus `-docs`/`.git`; must be unique in `repos`).
+2. **Clone location** — a fixed absolute path independent of the current directory, so it works from inside any project's session, and different for every repo. Default `$HOME/Projects/<repo URL basename>`; never inside the current project's working tree. If the path exists and its `origin` matches, reuse it; if it exists and differs, stop and ask. Clone it.
 3. **Git identity** — `git -C <clone> config user.email` must resolve (global or local). If it doesn't, ask the user for name and email and set them in the clone's local config only; if no one can be asked, stop and say identity is missing rather than inventing one.
 4. **Learn the repo and choose the layout** — read its `README.md`, `.codebase-docs.md` if present, and list two levels deep; summarize the structure in a few lines and ask the user to confirm or correct. Then set `layout`: if top-level folders are document types (requirements, architecture, reports, meetings, contracts, …) or the user says the repo covers one project, propose `single`; if they are project names, or the repo is empty and will hold several projects, propose `multi`. Confirm with the user (AskUserQuestion: multi-project / single-project). For an empty `single` repo, ask which type folders to create (default: `requirements`, `architecture`, `reports`, `meetings`, `estimates`, `contracts`, `references`, `templates`).
 5. **Settings and harness — two AskUserQuestion calls of four questions each:**
-   - Call A: **Push policy** (`ask` recommended / `auto` / `manual`); **Doc trigger** (`suggest` recommended / `manual` / `auto` — warn that `auto` works best with `no-secrets` and `branch-and-pr` ticked); then the multi-select groups **Content safety** and **Confidentiality**.
+   - Call A: **Push policy** (`ask` recommended / `auto` / `manual`); **Doc trigger** (global — ask only on the first repo or when the user wants to change it: `suggest` recommended / `manual` / `auto`, warning that `auto` works best with `no-secrets` and `branch-and-pr` ticked); if that leaves a slot free, offer to copy the harness from an existing repo as the starting selection; then the multi-select groups **Content safety** and **Confidentiality**.
    - Call B: multi-select groups **Code policy**, **Structure**, **Format**, **Workflow**. In `single` layout leave `folder-per-project` and `dated-notes` out of **Structure** (they assume per-project folders).
    - Each option is a catalog id (below), recommended ones marked. Nothing is on unless ticked. An "Other" entry on any question is folded into `customRules`.
    - Only if `anonymize-clients` is ticked, ask for the client/partner/vendor names that must never appear and a codename for each → `confidentialNames`. Client-name scanning exists only under this rule; leaving it unticked means names are never checked. Whenever `anonymize-clients` is unticked (at `init` or `config`), tell the user the saved `confidentialNames` will stop being checked and ask whether to delete them, so the config never holds names that look protected but aren't.
    - Finally ask free text: **"Any custom rules not covered above?"** (empty = none) → `customRules`, one rule per entry (e.g. a file-naming pattern).
-6. **Write config.json**, then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). In `multi`, project folders are **not** created here — they appear at the first `add`/`bootstrap`; the root index is a `| Project | Summary |` table. In `single`, create the chosen type folders (each with a `.gitkeep`) and make the root `README.md` a short project description plus a `Structure` list of those folders. Never overwrite existing starter files.
+6. **Write config.json** (add or update `repos.<name>`; set `defaultRepo` if this is the first repo or the user says so; ask which code projects, if any, should map to it now — otherwise they are mapped at first use), then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). In `multi`, project folders are **not** created here — they appear at the first `add`/`bootstrap`; the root index is a `| Project | Summary |` table. In `single`, create the chosen type folders (each with a `.gitkeep`) and make the root `README.md` a short project description plus a `Structure` list of those folders. Never overwrite existing starter files.
 7. **Check and commit the starter files** — `git add` them, run the pre-commit check (staged, no `--code`) and fix any BLOCK, then commit (`docs: initialize docs repo`).
 8. **Write-access check** — only possible once the clone has a commit, which is why it comes after step 7. Run `git -C <clone> push --dry-run origin HEAD:<branch>`. If it fails, report the exact error and stop; don't continue with a read-only repo.
 9. **Push the starter commit.** It is the one push `confidentiality-review` does not apply to (it holds no project content). With `branch-and-pr` and a non-empty repo, follow "Branch and PR" instead.
-10. Tell the user the next steps: `bootstrap` for an existing project, `add` for a single doc.
+10. Tell the user the next steps: `bootstrap` for an existing project, `add` for a single doc, `init` again to link another repo.
 
 ### Harness catalog
 
@@ -117,7 +131,7 @@ Use AskUserQuestion where choices are fixed, plain questions for free text. On r
 One script, used by `init`, `add`, `bootstrap` and `push`. Run it **before every commit** (staged mode) and **before every push** (range mode):
 
 ```
-python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.claude/codebase-docs/config.json \
+python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.claude/codebase-docs/config.json --repo <name> \
   [--mode staged|range] [--range origin/<branch>..HEAD | ALL] [--code <project path> ...] [--message "<commit msg>"] [--summary]
 ```
 
@@ -132,20 +146,32 @@ python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.cla
 - **Bad commit already made** (a range-mode BLOCK): if it is unpushed, `git -C <clone> reset --soft HEAD~<n>`, fix, and re-commit — allowed, since nothing was published. If it is already pushed, don't rewrite history; explain and ask the user.
 - **Custom rules** (`customRules`) are checked by you, not the script (it only prints them as `MANUAL`) — verify each against what you wrote. They apply to content docs, not to index files (root/project `README.md`) or `.codebase-docs.md`, unless a rule says otherwise. When updating an index, insert new rows inside its table/list and keep any trailer line last. If a rule needs a value you don't have (e.g. an owner name), write `TODO:` rather than inventing it.
 
+## Choosing the repo
+
+Used by every command that touches docs (`add`, `bootstrap`, `find`, `sync`, `push`, `status`, the doc trigger). The result is the **active repo**.
+
+1. `--repo <name>` wins. If the current code project is mapped to a *different* repo, say so and ask before using the override.
+2. Else the current code project's `projectMap` entry → its repo (and folder).
+3. Else only one repo configured → it.
+4. Else several repos and the project is unmapped → ask which repo (AskUserQuestion; list name, layout and clone path; mark `defaultRepo`), then record `{repo, folder}` in `projectMap` once the folder is resolved. Never guess between repos, and never file one project's docs in two repos.
+5. Not inside any code project (`find`, `sync`, `status`, `push`) → `defaultRepo`, or ask if there isn't one; `--all` runs the command over every repo in turn and reports per repo.
+
+Each repo is independent: its own clone, layout, harness, push policy and conventions file. Run the pre-commit check with that repo's `--repo <name>` and never apply one repo's rules to another.
+
 ## Resolving the project
 
-Used by `add` and `bootstrap`.
+Used by `add` and `bootstrap`, within the active repo.
 
-**`layout: single`** — there is no project folder to pick; docs go in the repo's type folders (see "Placement in a single-project repo"). Only check that the current code project belongs here: look it up in `projectMap`. Mapped → proceed. Not mapped → say this repo documents a different project and ask whether to file the doc here anyway (then add the mapping `"<key>": "."`) or stop. Skip steps 1–6 below.
+**`layout: single`** — there is no project folder to pick; docs go in the repo's type folders (see "Placement in a single-project repo"). The repo was chosen by "Choosing the repo", so the code project is mapped to it or the user just picked it; record `{ "repo": "<name>", "folder": "." }`. If the repo was chosen only because it is the sole or default repo and the code project is unmapped, say this repo documents one project and confirm it is the right one before filing. Skip steps 1–6 below.
 
 **`layout: multi`:**
 
 1. `--project <name>` wins.
-2. Else look the current code project up in `projectMap` (key as defined above).
+2. Else the current code project's `projectMap` folder in this repo (key as defined above).
 3. Else match its name against top-level folders in the docs repo (case- and separator-insensitive). Exactly one match → use it. Several or none → ask: pick an existing folder or create a new one.
 4. A new folder's name comes from, in order: what the user says; the project's manifest name (`package.json` `name`, `pyproject.toml`, `Cargo.toml`, `go.mod`); the code README's first `#` heading; the working directory's basename. Kebab-case it and confirm with the user.
 5. Not inside any project and no `--project` → ask.
-6. Record the resolved pairing in `projectMap` (a path key is stale if the project directory moves — re-resolve then).
+6. Record `{ "repo": "<name>", "folder": "<folder>" }` in `projectMap`.
 
 ## bootstrap
 
@@ -205,7 +231,7 @@ Brings documents that already exist (Word, PDF, HTML, Excel, PowerPoint, a Claud
 
 ## Doc trigger
 
-Applies when this skill is loaded in a session doing other work. Milestones worth documenting: a feature or fix completed, a design or architecture decision made, a bug root-caused, a setup/deploy/runbook procedure worked out, an integration or API contract settled.
+Applies when this skill is loaded in a session doing other work. The target repo comes from "Choosing the repo"; if the project is unmapped and several repos exist, ask which one when making the suggestion. Milestones worth documenting: a feature or fix completed, a design or architecture decision made, a bug root-caused, a setup/deploy/runbook procedure worked out, an integration or API contract settled.
 
 - `manual`: never raise docs unprompted.
 - `suggest`: at a milestone, say in one line what could be documented and where (`<project>/decisions/…`), and ask. Offer once per milestone; if declined, don't repeat. On yes, run `add`.
@@ -216,9 +242,13 @@ Applies when this skill is loaded in a session doing other work. Milestones wort
 
 ## find
 
-Pull first (`git -C <clonePath> pull --rebase`); if the pull fails or there is no network, continue on the local copy and say the results may be stale. Search file names first, then content (`git -C <clonePath> ls-files | grep -i`, then `grep -rniI`), scoped to the current project's folder first, then the whole repo. Report up to ~10 hits as `path — one-line why it matches`, and offer to open or summarize the best one.
+Search the active repo (every configured repo with `--all`, labelling hits by repo). Pull first (`git -C <clonePath> pull --rebase`); if the pull fails or there is no network, continue on the local copy and say the results may be stale. Search file names first, then content (`git -C <clonePath> ls-files | grep -i`, then `grep -rniI`), scoped to the current project's folder first, then the whole repo. Report up to ~10 hits as `path — one-line why it matches`, and offer to open or summarize the best one.
 
-## sync / push
+## sync / push / status / repos
+
+- `repos`: list each configured repo as `name — layout — clonePath — remote — code projects mapped to it`, marking `defaultRepo`. Read-only.
+- `status`: for the active repo (every repo with `--all`) show branch, uncommitted changes, unpushed commits and the current project's folder.
+- `config remove-repo <name>`: ask first, then delete only its `repos` entry and its `projectMap` mappings; never touch the clone or the remote. If it was `defaultRepo`, ask for a new default.
 
 - `sync`: `git -C <clonePath> pull --rebase`; on conflict stop and explain, never force. Then, if there are unpushed commits, continue as `push`.
 - `push`: if nothing is unpushed, say so. Otherwise follow `add` step 9 (range-mode check, confidentiality summary or push confirmation per policy, `branch-and-pr` handling), then `git push`. A BLOCK anywhere in the range stops the push and is reported. Never `--force`.
@@ -230,7 +260,7 @@ Pull first (`git -C <clonePath> pull --rebase`); if the pull fails or there is n
 ## Safety
 
 - Always use absolute paths and `git -C <clonePath> ...`; never `cd` into the docs clone or rely on the current directory — the session is usually in another project. The clone is outside the session's folders, so expect a permission prompt the first time it is read or written.
-- Only operate inside `clonePath`; never modify the project's code repo from this skill (reading it is fine).
+- Only operate inside the active repo's `clonePath`; never modify the project's code repo from this skill (reading it is fine).
 - No force-push, no history rewrites, no deleting committed docs or branches without explicit approval.
-- Push only the configured branch (or the `docs/<topic>` branch under `branch-and-pr`) to the configured remote.
+- Push only the active repo's configured branch (or the `docs/<topic>` branch under `branch-and-pr`) to its configured remote. A command never pushes, pulls or writes in a repo other than the active one (`--all` visits them one at a time).
 - Docs may be shared; the pre-commit check is mandatory before every commit and push.
