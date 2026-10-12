@@ -43,7 +43,7 @@ Stop hunting through Google Docs and Drive folders. Point the skill at a git rep
 | `/codebase-docs sync` / `push` | Pull with rebase / push pending commits (never force) |
 | `/codebase-docs status` / `config` | Show repo state / view and edit settings |
 
-The repo is docs-only by design: with the strict `no-source-code` rule, code files are blocked before every commit and only short labeled sample snippets are allowed inside Markdown. Every commit and push is also scanned for secrets and NDA/client-confidential content.
+The repo is docs-only by design: with the strict `no-source-code` rule, code files are blocked and only short labeled sample snippets are allowed inside Markdown. A bundled script (`scripts/precommit.py`, needs `python3`) runs before every commit and push: it blocks code files, oversized or copied code blocks, secrets, internal IPs/hosts, confidential client names and multi-line commit messages, and lists the rules it can't check for Claude to verify.
 
 Doc trigger is `suggest` (default: Claude offers to document milestones, you say yes), `manual` (only when you ask), or `auto` (writes at milestones itself); change it any time by saying so.
 
@@ -137,6 +137,15 @@ Copy a skill file to your personal skills directory (replace `ctx` with `meeting
 mkdir -p ~/.claude/skills/ctx
 curl -o ~/.claude/skills/ctx/SKILL.md \
   https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/plugins/ctx/skills/ctx/SKILL.md
+```
+
+`codebase-docs` also needs its checker script, so copy that folder's `scripts/` too:
+
+```sh
+mkdir -p ~/.claude/skills/codebase-docs/scripts
+B=https://raw.githubusercontent.com/mayur-codebase/claude-skills/main/plugins/codebase-docs/skills/codebase-docs
+curl -o ~/.claude/skills/codebase-docs/SKILL.md $B/SKILL.md
+curl -o ~/.claude/skills/codebase-docs/scripts/precommit.py $B/scripts/precommit.py
 ```
 
 It is picked up automatically in your next session.

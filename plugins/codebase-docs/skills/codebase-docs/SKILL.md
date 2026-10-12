@@ -1,183 +1,204 @@
 ---
+name: codebase-docs
 description: Store and find project documentation in one central git docs repo instead of scattered Google Docs/Drive folders. Use when the user types /codebase-docs — "/codebase-docs init" links the repo and records rules, "/codebase-docs bootstrap" drafts first docs for a project from its code, "/codebase-docs add <what>" writes or files a doc into the right project folder, "/codebase-docs find <query>" locates docs, "/codebase-docs sync" pulls/pushes, "/codebase-docs status|config|help" manage it. Also use when the user asks to document, save docs for, or find docs of the project they are working on.
 argument-hint: "init | bootstrap [project] | add [what] [--project <name>] | find <query> | sync | push | status | config | help"
 ---
 
 # codebase-docs — one git repo for all project documentation
 
-Docs for every project live in a single git repo the user owns. This skill links that repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), and pushes according to the user's policy.
+Docs for every project live in a single git repo. This skill links that repo, learns its structure, files new docs under the right project folder (adapting the structure when the project needs it), enforces the team's rules with a script, and pushes according to the user's policy.
+
+Requires `git` and `python3`.
 
 ## Storage
 
 ```
-~/.claude/codebase-docs/config.json   # settings, outside any repo, never committed
-<clonePath>/                         # local clone of the docs repo (default ~/Projects/codebase-docs)
-<clonePath>/.codebase-docs.md         # in-repo conventions file, committed (see "Conventions file")
+$HOME/.claude/codebase-docs/config.json   # settings, outside any repo, never committed
+<clonePath>/                              # local clone of the docs repo (default $HOME/Projects/codebase-docs)
+<clonePath>/.codebase-docs.md             # in-repo conventions file, committed
+<this skill's dir>/scripts/precommit.py   # the rule checker (see "Pre-commit check")
 ```
 
-`config.json`:
+`config.json` (all paths absolute — expand `~` before writing):
 
 ```json
 {
-  "repo": "git@github.com:user/docs.git",
+  "repo": "git@github.com:org/docs.git",
   "clonePath": "/Users/me/Projects/codebase-docs",
   "branch": "main",
   "pushPolicy": "ask",
   "docTrigger": "suggest",
-  "projectMap": { "<git-remote-or-folder-name>": "<folder-in-docs-repo>" },
+  "projectMap": { "github.com/org/orders-api": "orders-api" },
   "harness": ["no-secrets", "folder-per-project", "kebab-case-names"],
   "confidentialNames": { "Real Client Name": "codename" },
   "customRules": ["free-text rules added at the end of init"]
 }
 ```
 
-- `pushPolicy`: `ask` (default — show what will be pushed, wait for yes), `auto` (commit + push right after each doc write), `manual` (commit only locally; push only on `/codebase-docs push`).
-- `projectMap` remembers which code project maps to which docs folder so it is never re-asked.
-- `docTrigger`: when a doc gets created — `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
+- `pushPolicy`: `ask` (default — show what will be pushed, wait for yes), `auto` (push right after each doc write), `manual` (commit only; push on `/codebase-docs push`).
+- `docTrigger`: `manual` (only on `/codebase-docs add` or an explicit request), `suggest` (default — at a milestone, offer to document it and write nothing until the user agrees), `auto` (write and commit at a milestone, push per `pushPolicy`). The user can always ask for a doc directly, whatever the mode.
+- `projectMap`: code project → docs folder, so it is never re-asked. The skill writes an entry whenever it resolves a project. Key = the code repo's normalized remote (`host/owner/repo`, no `.git`, no scheme); with no remote, the project's absolute path.
+- `confidentialNames` stays on the user's machine; never write it (or any real name from it) into the docs repo, including `.codebase-docs.md`.
 - Read `config.json` at the start of every command except `init`/`help`. If missing, say so and run `init`.
+- Locating the script: it sits in `scripts/` next to this `SKILL.md` (the skill's base directory is shown when the skill loads). If that path is missing, look in `$HOME/.claude/skills/codebase-docs/scripts/` then `find $HOME/.claude/plugins -path '*codebase-docs/scripts/precommit.py'`.
 
 ## Commands
 
 | Input | Action |
 |---|---|
-| `init` | Link the repo, learn structure, pick harness rules, set push policy |
+| `init` | Link the repo, check access, pick settings and harness rules, push the starter files |
 | `bootstrap [project]` | One-time: draft the initial docs for a project from its code, after you approve the plan |
 | `add [what] [--project <name>]` | Write or file a doc into the right folder (default verb when the user just describes docs to write) |
 | `find <query>` | Search the docs repo and report matching files |
-| `sync` | `git pull --rebase`, then push if there are unpushed commits and policy allows |
-| `push` | Push pending commits now (confirm per policy) |
+| `sync` | `git pull --rebase`, then offer to push unpushed commits |
+| `push` | Check and push pending commits |
 | `status` | Linked repo, branch, uncommitted/unpushed changes, current project's folder |
 | `config` | Show config; re-open the harness checklist, change `docTrigger`/`pushPolicy`, or edit any field |
-| `help` | Print this table and one example |
+| `help` | Print this table plus: `Example: /codebase-docs add "how we deploy the orders API"` |
 
 ## init
 
-Ask, in this order (use AskUserQuestion where choices are fixed; plain questions for free text). Skip anything already in config when re-running; show current values and ask what to change.
+Use AskUserQuestion where choices are fixed, plain questions for free text. On re-run, show current values and ask only what to change.
 
 1. **Repo** — URL of the docs git repo, or a path to an existing local clone.
-2. **Clone location** — a fixed absolute path, independent of the current directory, so it works the same from inside any project's session. Default `~/Projects/codebase-docs`; never clone inside the current project's working tree (that would nest a repo in the project's repo). If the path exists and its `origin` matches the repo, reuse it; if it exists and differs, stop and ask.
-3. **Write access check** — after cloning, run `git push --dry-run` (or `git ls-remote` plus a dry-run push). If it fails, report the exact error and stop; don't proceed with a read-only repo.
-4. **Push policy** — `ask` (recommended) / `auto` / `manual`.
-   **Doc trigger** — `suggest` (recommended: offer at milestones, write on yes) / `manual` (only when asked) / `auto` (write at milestones without asking; warn that it works best with `no-secrets` and `branch-and-pr` ticked).
-5. **Harness (rules)** — let the user pick which guidelines apply, then add custom ones. Use **two AskUserQuestion calls (max four questions each)** covering the six groups below, one multi-select question per group — first call: Content safety, Confidentiality, Code policy, Structure; second call: Format, Workflow (each option is a catalog id; mark the recommended ones). Preselect nothing silently: anything not ticked is off. On re-run, show current selections and ask what to change.
-   If `nda-safe` or `anonymize-clients` is ticked, also ask for the client/partner/vendor names (and codenames to use instead) that must never appear; store them in `config.json` as `confidentialNames` (kept on the user's machine only, never written to the docs repo).
-   Then ask one final free-text question: **"Any custom rules not covered above?"** (empty = none). Store the ticked ids in `harness` and the free text, one rule per entry, in `customRules`.
+2. **Clone location** — a fixed absolute path independent of the current directory, so it works from inside any project's session. Default `$HOME/Projects/codebase-docs`; never inside the current project's working tree. If the path exists and its `origin` matches, reuse it; if it exists and differs, stop and ask. Clone it.
+3. **Git identity** — `git -C <clone> config user.email` must resolve (global or local). If it doesn't, ask the user for name and email and set them in the clone's local config only; if no one can be asked, stop and say identity is missing rather than inventing one.
+4. **Settings and harness — two AskUserQuestion calls of four questions each:**
+   - Call A: **Push policy** (`ask` recommended / `auto` / `manual`); **Doc trigger** (`suggest` recommended / `manual` / `auto` — warn that `auto` works best with `no-secrets` and `branch-and-pr` ticked); then the multi-select groups **Content safety** and **Confidentiality**.
+   - Call B: multi-select groups **Code policy**, **Structure**, **Format**, **Workflow**.
+   - Each option is a catalog id (below), recommended ones marked. Nothing is on unless ticked. An "Other" entry on any question is folded into `customRules`.
+   - If `nda-safe` or `anonymize-clients` is ticked, ask for the client/partner/vendor names that must never appear and a codename for each → `confidentialNames`.
+   - Finally ask free text: **"Any custom rules not covered above?"** (empty = none) → `customRules`, one rule per entry.
+5. **Learn the repo** — read its `README.md`, `.codebase-docs.md` if present, and list two levels deep. Summarize the structure in a few lines and ask the user to confirm or correct.
+6. **Write config.json**, then create/refresh the starter files if missing: root `README.md` (title, one-line purpose, and an index table `| Project | Summary |` with no rows yet) and `.codebase-docs.md` (the chosen rules in plain language, per "Conventions file"). Project folders are **not** created here — they appear at the first `add`/`bootstrap`.
+7. **Check and commit the starter files** — `git add` them, run the pre-commit check (staged, no `--code`) and fix any BLOCK, then commit (`docs: initialize docs repo`).
+8. **Write-access check** — only possible once the clone has a commit, which is why it comes after step 7. Run `git -C <clone> push --dry-run origin HEAD:<branch>`. If it fails, report the exact error and stop; don't continue with a read-only repo.
+9. **Push the starter commit.** It is the one push `confidentiality-review` does not apply to (it holds no project content). With `branch-and-pr` and a non-empty repo, follow "Branch and PR" instead.
+10. Tell the user the next steps: `bootstrap` for an existing project, `add` for a single doc.
 
-   **Harness catalog**
+### Harness catalog
 
-   | Group | id | Rule |
-   |---|---|---|
-   | Content safety | `no-secrets` *(recommended)* | Never write secrets, tokens, keys or credentials; refer to where they live (vault, env var name) |
-   | | `no-pii` *(recommended)* | No customer data or personal info; use placeholders/anonymized examples |
-   | | `no-internal-urls` | Don't include internal hostnames, IPs, or account IDs |
-   | | `public-safe` | Write as if the repo could become public |
-   | Confidentiality | `nda-safe` *(recommended)* | Nothing covered by an NDA or client confidentiality: no client-provided materials, contract terms, pricing, non-public roadmaps or third-party confidential info |
-   | | `anonymize-clients` | Refer to clients, partners and vendors by codename/placeholder, never by real name |
-   | | `no-third-party-content` | Don't paste copyrighted or licensed third-party material (vendor docs, specs, articles); summarize in own words and link |
-   | | `confidentiality-review` *(recommended)* | Before any push, show a confidentiality summary of the diff (names, numbers, URLs, code blocks) and get explicit approval, whatever `pushPolicy` says |
-   | Code policy | `no-source-code` *(recommended)* | **Strict:** no source code or code files in the repo — only prose docs. Code may appear only as short illustrative snippets inside Markdown, never as files |
-   | | `snippet-limit` *(recommended)* | Snippets are samples: at most 30 lines, sanitized, labeled "Sample", never a verbatim copy of a proprietary module |
-   | | `link-not-copy` | Point to code by repo, path and commit permalink instead of pasting it |
-   | | `allowed-files-only` | Only these file types may be committed: `.md`, `.mdx`, and images (`.png`, `.jpg`, `.svg`); everything else is blocked |
-   | Structure | `folder-per-project` *(recommended)* | One top-level folder per project, named after it in kebab-case |
-   | | `index-readmes` *(recommended)* | Keep each project `README.md` and the root `README.md` indexes up to date |
-   | | `adr-decisions` | Record decisions as ADRs in `decisions/YYYY-MM-DD-title.md` (context, decision, consequences) |
-   | | `dated-notes` | Working notes go in `notes/YYYY-MM-DD-title.md` |
-   | Format | `markdown-only` *(recommended)* | Markdown files only; link to external files instead of committing binaries |
-   | | `kebab-case-names` *(recommended)* | File and folder names are lowercase kebab-case |
-   | | `frontmatter` | Every doc starts with frontmatter: `title`, `owner`, `updated`, `status` |
-   | | `mermaid-diagrams` | Diagrams are Mermaid code blocks, not images |
-   | Workflow | `link-code-repo` | Each project README links its code repo(s) |
-   | | `confirm-restructure` *(recommended)* | Announce and get approval before moving or renaming existing docs |
-   | | `one-line-commits` | One-line commit messages, no body |
-   | | `branch-and-pr` | Push to a `docs/<topic>` branch and open a PR instead of pushing to the main branch |
+| Group | id | Rule |
+|---|---|---|
+| Content safety | `no-secrets` ★ | Never write secrets, tokens, keys or credentials; refer to where they live (vault, env var name) |
+| | `no-pii` ★ | No customer data or personal info; use placeholders |
+| | `no-internal-urls` | No internal hostnames, private IPs, or AWS account IDs |
+| | `public-safe` | Write as if the repo could become public |
+| Confidentiality | `nda-safe` ★ | Nothing covered by an NDA or client confidentiality: no client-provided materials, contract terms, pricing, non-public roadmaps or third-party confidential info |
+| | `anonymize-clients` | Clients, partners and vendors appear by codename only |
+| | `no-third-party-content` | No pasted copyrighted/licensed material; summarize in own words and link |
+| | `confidentiality-review` ★ | Before any push, show a confidentiality summary and get explicit approval, whatever `pushPolicy` says |
+| Code policy | `no-source-code` ★ | **Strict:** no code files in the repo — only `.md`/`.mdx` and images. Code appears only as short snippets inside Markdown |
+| | `snippet-limit` ★ | Snippets are samples: at most 30 lines, labeled "Sample", never a verbatim copy of code from the project |
+| | `link-not-copy` | Point to code by repo, path and commit permalink instead of pasting it |
+| Structure | `folder-per-project` ★ | One top-level folder per project, named in kebab-case |
+| | `index-readmes` ★ | Keep each project `README.md` and the root `README.md` index up to date |
+| | `adr-decisions` | Decisions are ADRs in `decisions/YYYY-MM-DD-title.md` (context, decision, consequences) |
+| | `dated-notes` | Working notes in `notes/YYYY-MM-DD-title.md` |
+| Format | `markdown-only` ★ | Markdown only (no images either); link to external files instead of committing binaries. Narrows `no-source-code`'s image allowance |
+| | `kebab-case-names` ★ | File and folder names are lowercase kebab-case (`README.md` excepted) |
+| | `frontmatter` | Every content doc starts with frontmatter: `title`, `owner`, `updated`, `status` |
+| | `mermaid-diagrams` | Diagrams are Mermaid code blocks, not images |
+| Workflow | `link-code-repo` | Each project README links its code repo(s) |
+| | `confirm-restructure` ★ | Announce and get approval before moving or renaming existing docs |
+| | `one-line-commits` | One-line commit messages, no body |
+| | `branch-and-pr` | Push to a `docs/<topic>` branch and open a PR instead of pushing to the main branch |
 
-   Each group has four options, which fits AskUserQuestion's limit. The "Other" box on every question is where a one-off tweak can go; fold it into `customRules`.
-6. **Learn the repo** — read its `README.md`, `.codebase-docs.md` if present, and `ls` two levels deep. Summarize the structure back in a few lines (top-level layout, how projects are organized, templates found) and ask the user to confirm or correct. If the repo is empty, propose a layout (below) and ask before creating it.
+★ = recommended. The script enforces what can be checked mechanically (file types, names, frontmatter, secrets, internal addresses, confidential names, code blocks, commit bodies) and prints `MANUAL` reminders for the rest.
 
-Then write `config.json`, create/refresh the conventions file in the repo if missing, and tell the user how to use `add`.
+## Pre-commit check
 
-### Proposed layout for an empty repo
+One script, used by `init`, `add`, `bootstrap` and `push`. Run it **before every commit** (staged mode) and **before every push** (range mode):
 
 ```
-README.md              # index: one line per project, links to its folder
-.codebase-docs.md       # conventions
-<project>/
-  README.md            # what the project is, links to docs below
-  overview.md
-  architecture.md
-  decisions/           # ADR-style, YYYY-MM-DD-title.md
-  runbooks/
-  notes/               # dated working notes
+python3 <skill dir>/scripts/precommit.py --clone <clonePath> --config $HOME/.claude/codebase-docs/config.json \
+  [--mode staged|range] [--range origin/<branch>..HEAD | ALL] [--code <project path> ...] [--message "<commit msg>"] [--summary]
 ```
 
-Only create subfolders when there is something to put in them.
+- `staged` (default): checks what is staged, reading content from the index. `range`: checks the files and commit messages in the range (`ALL` for a first push when the remote branch doesn't exist yet).
+- `--code`: the code project(s) being documented (the session's working directory, or the path given to `bootstrap`). Needed to catch verbatim copies; skip it only when no code project is known.
+- Output: `BLOCK` lines (stop), `FLAG` lines (show the user, keep or reword, proceed only on an explicit answer), `MANUAL` lines (rules the script can't judge — you must verify each one against what you wrote and fix violations), then `RESULT PASS|FLAGS|FAIL`. Exit 0 / 2 / 1.
+- Thresholds, so results are reproducible: code blocks over 30 lines blocked; a block is "labeled" if the word *Sample* is on the fence line or the nearest non-blank line above (`mermaid` blocks exempt); a block is a "verbatim copy" if at least 3 non-trivial lines match a project file and they are at least 50% of the block, or the doc contains a whole project file; contract/pricing language is a FLAG, everything else listed is a BLOCK.
+- `--summary` prints the confidentiality summary (files and line counts, code blocks, URLs, amounts/percentages, confidential names found) — show it verbatim for `confidentiality-review`.
+- A ticked rule is **not overridable in the moment**. If the user asks for something it forbids ("just push the file"), name the rule that blocks it and say they can change it via `/codebase-docs config`; don't bypass the check.
+- On BLOCK: don't commit. Report each line, **unstage** the offending paths (`git -C <clone> reset -q -- <path>`) without deleting them, then fix the content and re-run. Files this run created that were never committed may be edited or removed to fix them; existing committed docs are never deleted (see Safety).
+- **Bad commit already made** (a range-mode BLOCK): if it is unpushed, `git -C <clone> reset --soft HEAD~<n>`, fix, and re-commit — allowed, since nothing was published. If it is already pushed, don't rewrite history; explain and ask the user.
+- **Custom rules** (`customRules`) are checked by you, not the script (it only prints them as `MANUAL`) — verify each against what you wrote. They apply to content docs, not to index files (root/project `README.md`) or `.codebase-docs.md`, unless a rule says otherwise. When updating an index, insert new rows inside its table/list and keep any trailer line last. If a rule needs a value you don't have (e.g. an owner name), write `TODO:` rather than inventing it.
+
+## Resolving the project
+
+Used by `add` and `bootstrap`.
+
+1. `--project <name>` wins.
+2. Else look the current code project up in `projectMap` (key as defined above).
+3. Else match its name against top-level folders in the docs repo (case- and separator-insensitive). Exactly one match → use it. Several or none → ask: pick an existing folder or create a new one.
+4. A new folder's name comes from, in order: what the user says; the project's manifest name (`package.json` `name`, `pyproject.toml`, `Cargo.toml`, `go.mod`); the code README's first `#` heading; the working directory's basename. Kebab-case it and confirm with the user.
+5. Not inside any project and no `--project` → ask.
+6. Record the resolved pairing in `projectMap` (a path key is stale if the project directory moves — re-resolve then).
 
 ## bootstrap
 
-Opt-in, explicit only — never triggered by `docTrigger`. Drafts the first set of docs for a project that has none yet, from its code and existing READMEs.
+Opt-in, explicit only — never triggered by `docTrigger`. Drafts the first docs for a project that has none yet, from its code.
 
-1. **Resolve the project and its docs folder** exactly as `add` step 1. If the folder already has docs, say so and ask whether to extend (fill gaps only) or stop; never overwrite existing files.
-2. **Read the code project proportionally**, in the working directory (or the path given): README, manifests, entry points, config/infra files, directory layout, tests' names, CI workflows. Fan out Explore agents for a large repo. Skip `node_modules`, `.git`, build output, caches and generated code. Note only names and purposes — you are describing the system, not copying it.
-3. **Propose a plan before writing anything**: the list of files to create (default: `README.md`, `overview.md`, `architecture.md`, `setup.md`; add `decisions/` or `runbooks/` only when the code evidence supports them), with one line on what each covers and what source it draws from. Show it with the harness rules that will apply, then wait for approval or edits. Don't start writing without a yes.
-4. **Write the docs** in prose: purpose, tech stack, components and how they interact, data flow, how to run/build/deploy, environments, external dependencies, known gaps. Describe behavior and structure; use at most a few short labeled sample snippets (a command, a config shape) within the harness limits; link to code by repo, path and commit (`link-not-copy`) rather than pasting it. Never invent: anything not evident from the code goes in as `TODO:` for the user to fill. Redact secrets, internal URLs and confidential names per the harness.
-5. **Run the pre-commit check** (see `add`), update the project and root README indexes, and commit once with a one-line message (`docs(<project>): bootstrap initial docs`).
-6. **Push per policy** and report the files created, anything left as `TODO:`, and a short list of questions the code couldn't answer, so the user can have them filled in.
+1. **Resolve the project** (above). If its folder already has docs, say so and ask whether to extend (fill gaps only) or stop; never overwrite existing files.
+2. **Pull** — `git -C <clonePath> pull --rebase`; on a dirty tree or conflict, stop and report.
+3. **Read the code project proportionally**, in the working directory or the path given: README, manifests, entry points, config/infra files, layout, test names, CI workflows. Fan out Explore agents for a large repo. Skip `node_modules`, `.git`, build output, caches and generated code. Note names and purposes — you are describing the system, not copying it.
+4. **Propose a plan before writing anything**: files to create (default `README.md`, `overview.md`, `architecture.md`, `setup.md`; add `decisions/` or `runbooks/` only when the code supports them), one line each on what it covers and its source, and the harness rules that apply. Wait for approval or edits; don't write without a yes.
+5. **Write the docs** in prose: purpose, tech stack, components and how they interact, data flow, how to run/build/deploy, environments, external dependencies, known gaps. At most a few short labeled sample snippets; link to code by repo, path and commit instead of pasting. Never invent: anything not evident from the code is `TODO:`. Use codenames from `confidentialNames` wherever the real name would appear.
+6. **Update indexes** (project `README.md` and the root index).
+7. **Pre-commit check** (staged, with `--code <project path>`), passing `--message "docs(<project>): bootstrap initial docs"`, then **commit** once with that message.
+8. **Push and report** — follow `add` steps 9–10. The report also lists anything left as `TODO:` and the questions the code couldn't answer.
 
 ## add
 
-1. **Resolve the project**
-   - `--project` wins. Else look up the current repo in `projectMap` (key: git remote URL, falling back to the folder basename).
-   - Else match the git remote/folder name against top-level folders in the docs repo (case- and separator-insensitive). One clear match → use it and record it in `projectMap`. Several or none → ask: pick an existing folder or create a new one (name it after the project, kebab-case).
-   - Not inside any git project and no `--project` → ask.
+1. **Resolve the project** (above).
 2. **Pull first** — `git -C <clonePath> pull --rebase`. If the tree is dirty or the pull conflicts, stop and report; never discard changes.
-3. **Apply the harness** — treat every id in `harness` and every entry in `customRules` as a hard constraint on what you write, where you put it, and how you commit/push. If a request conflicts with a ticked rule, say so and ask rather than break it. `branch-and-pr` overrides `pushPolicy` for the target branch.
-4. **Understand the existing structure** for that project: list its folder, read its `README.md` and neighbours of the same kind so new content matches their format and depth. Follow the repo's templates and the user's `rules`.
-5. **Decide placement.** Put the doc where the existing convention says (e.g. decisions → `decisions/`). If the project needs structure the repo lacks, adapt it: add a folder, split a doc, or move/rename files — keeping the project's `README.md` index and the root `README.md` index accurate. State any restructure (especially moves/renames) before doing it; never delete docs without explicit approval.
-6. **Write the doc** from what the user described and from what the session actually knows (code, decisions made, commands run). Don't invent facts; mark gaps as `TODO:` or ask. Never include secrets, tokens, or credentials — redact and refer to where they live instead.
-7. **Update indexes** (project README, root README) with the new entry.
-8. **Pre-commit check** — run before every commit; any failure stops the commit and is reported with file and line:
-   - `git -C <clonePath> diff --cached --name-only`: with `no-source-code` or `allowed-files-only`, block any staged file outside the allowed doc types (`.md`, `.mdx`, `.png`, `.jpg`, `.svg`) — notably source files (`.ts`, `.js`, `.py`, `.java`, `.go`, `.sh`, `.sql`, `.tf`, `.yml`, `.json`, lockfiles, etc.).
-   - With `no-source-code`/`snippet-limit`: scan Markdown fenced code blocks — block blocks over 30 lines, blocks not labeled as a sample, and anything that looks like a whole file or module copied verbatim from the code repo (compare against the project's code if it is available locally).
-   - With `no-secrets`: scan for key/token/password patterns (`AKIA…`, `-----BEGIN … KEY-----`, `ghp_…`, `xox…`, `password=`, connection strings); with `no-internal-urls`: internal hosts, private IPs, AWS account IDs.
-   - With `nda-safe`/`anonymize-clients`: flag client or vendor names the user listed as confidential, contract/pricing language, and client-supplied material; ask before keeping anything flagged.
-   - A ticked rule is **not overridable in the moment**. If the user asks for something it forbids ("just push the file"), explain which rule blocks it and that they can change the rule via `/codebase-docs config`; don't bypass it.
-9. **Commit** with a one-line message (e.g. `docs(<project>): add <topic>`) — a short descriptive subject; with `one-line-commits` ticked, never add a body. The commit is part of the user's request to store docs here.
-10. **Push per policy**
-   - With `confidentiality-review`: always show the confidentiality summary and get explicit approval first, even under `auto`.
-   - `ask`: show `git diff --stat` of the commit(s) and the target branch, ask before pushing.
-   - `auto`: push immediately and report.
-   - `manual`: don't push; say it is committed locally and `/codebase-docs push` will push it.
-11. Report: file path(s) relative to the repo, commit hash, push status, and a link to the file on the remote when the host is GitHub (`<repo-url>/blob/<branch>/<path>`).
+3. **Apply the harness** — treat every id in `harness` and every `customRules` entry as a hard constraint on what you write, where you put it, and how you commit and push. If a request conflicts with a ticked rule, say so rather than break it.
+4. **Understand the existing structure** for that project: list its folder, read its `README.md` and neighbouring docs of the same kind so new content matches their format and depth; follow templates found in the repo.
+5. **Decide placement.** Put the doc where the existing convention says (decisions → `decisions/`). If the project needs structure the repo lacks, adapt it: add a folder, split a doc, or move/rename files — keeping both README indexes accurate. State any restructure, especially moves and renames, before doing it (`confirm-restructure` makes approval mandatory); never delete docs without explicit approval.
+6. **Write the doc** from what the user described and what the session actually knows (code, decisions made, commands run). Don't invent facts; mark gaps `TODO:` or ask. Never include secrets, tokens or credentials — refer to where they live instead.
+7. **Update indexes** (project and root `README.md`).
+8. **Pre-commit check** (staged, `--code <project path>`, `--message "<subject>"`), then **commit** with a short descriptive one-line subject (`docs(<project>): add <topic>`); with `one-line-commits` never add a body. Committing is part of the user's request to store docs here.
+9. **Push per policy**
+   - Run the pre-commit check in range mode (`--range origin/<branch>..HEAD`, or `ALL` if the remote branch doesn't exist).
+   - `confidentiality-review` ticked: show the `--summary` output plus `git diff --stat`; **one** explicit approval covers the push — even under `auto`, and it replaces the `ask` prompt.
+   - Else `ask`: show `git log origin/<branch>..HEAD --oneline` and `git diff --stat origin/<branch>..HEAD`, ask before pushing.
+   - Else `auto`: push and report. `manual`: don't push; say it is committed locally and `/codebase-docs push` will push it.
+   - `branch-and-pr` ticked: use "Branch and PR" below instead of pushing the main branch.
+10. **Report:** file path(s) relative to the repo, commit hash, push status, and — when the host is GitHub — a link (`<repo-url>/blob/<branch>/<path>`).
+
+### Branch and PR
+
+For `branch-and-pr`: create `docs/<topic>` (kebab-case, from the doc topic) before committing, push it with `git push -u origin docs/<topic>`, then open a PR with `gh pr create` if `gh` is available (title = the commit subject), otherwise print the branch's compare URL. Never merge it.
 
 ## Doc trigger
 
-Applies when this skill is loaded in a session that is doing other work. Milestones worth documenting: a feature or fix completed, a design or architecture decision made, a bug root-caused, a setup/deploy/runbook procedure worked out, an integration or API contract settled.
+Applies when this skill is loaded in a session doing other work. Milestones worth documenting: a feature or fix completed, a design or architecture decision made, a bug root-caused, a setup/deploy/runbook procedure worked out, an integration or API contract settled.
 
 - `manual`: never raise docs unprompted.
 - `suggest`: at a milestone, say in one line what could be documented and where (`<project>/decisions/…`), and ask. Offer once per milestone; if declined, don't repeat. On yes, run `add`.
-- `auto`: run `add` at the milestone, then report the file, commit and push status in one line.
+- `auto`: run `add` at the milestone, then report file, commit and push status in one line.
 - Never trigger on trivial edits, mid-task states, or work that is still being reverted or reworked.
 - A direct request ("document this", `/codebase-docs add`) always works in every mode.
-- The user can change the mode at any point in plain words ("switch to auto", "stop suggesting"); update `docTrigger` in `config.json` and confirm.
+- The user can change the mode in plain words ("switch to auto", "stop suggesting"); update `docTrigger` in `config.json` and confirm.
 
 ## find
 
-Search the clone with grep/glob (file names first, then content; scope to the current project's folder first, then the whole repo). Pull first so results are current. Report up to ~10 hits as `path — one-line why it matches`, and offer to open or summarize the best one.
+Pull first (`git -C <clonePath> pull --rebase`); if the pull fails or there is no network, continue on the local copy and say the results may be stale. Search file names first, then content (`git -C <clonePath> ls-files | grep -i`, then `grep -rniI`), scoped to the current project's folder first, then the whole repo. Report up to ~10 hits as `path — one-line why it matches`, and offer to open or summarize the best one.
 
 ## sync / push
 
-- `sync`: `git pull --rebase`; on conflict stop and explain, never force. Then, per policy, offer to push unpushed commits.
-- `push`: re-run the pre-commit checks over every unpushed commit (`git diff origin/<branch>..HEAD`); a failure blocks the push. Then show `git log origin/<branch>..HEAD --oneline` and `git diff --stat origin/<branch>..HEAD`, confirm (unless `auto`), then `git push`. Never `--force`.
+- `sync`: `git -C <clonePath> pull --rebase`; on conflict stop and explain, never force. Then, if there are unpushed commits, continue as `push`.
+- `push`: if nothing is unpushed, say so. Otherwise follow `add` step 9 (range-mode check, confidentiality summary or push confirmation per policy, `branch-and-pr` handling), then `git push`. A BLOCK anywhere in the range stops the push and is reported. Never `--force`.
 
 ## Conventions file
 
-`.codebase-docs.md` in the docs repo records the structure rules so the layout stays consistent even for other machines/agents: folder-per-project, naming, templates, index maintenance, what never goes in docs. Create it from the selected `harness` rules and `customRules` (written out in plain language, so other machines and agents follow the same rules); update it whenever the structure intentionally changes. It is committed with the docs.
+`.codebase-docs.md` in the docs repo states the rules in plain language so other machines and agents follow the same layout: folder-per-project, naming, templates, index maintenance, what never goes in docs, plus the selected `harness` rules and `customRules`. Never include `confidentialNames`. Update it whenever the structure or rules intentionally change; it is committed with the docs.
 
 ## Safety
 
-- Always use absolute paths and `git -C <clonePath> ...`; never `cd` into the docs clone or rely on the current directory, since the session is usually in another project. The clone is outside the session's folders, so expect a permission prompt the first time it is read or written.
-- Only operate inside `clonePath`; never touch the project's code repo from this skill.
-- No force-push, no history rewrites, no deleting docs or branches without explicit approval.
-- Push only the configured branch to the configured remote.
-- Docs may be shared; scan what you write for secrets/PII before committing.
+- Always use absolute paths and `git -C <clonePath> ...`; never `cd` into the docs clone or rely on the current directory — the session is usually in another project. The clone is outside the session's folders, so expect a permission prompt the first time it is read or written.
+- Only operate inside `clonePath`; never modify the project's code repo from this skill (reading it is fine).
+- No force-push, no history rewrites, no deleting committed docs or branches without explicit approval.
+- Push only the configured branch (or the `docs/<topic>` branch under `branch-and-pr`) to the configured remote.
+- Docs may be shared; the pre-commit check is mandatory before every commit and push.
